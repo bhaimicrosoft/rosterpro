@@ -1,9 +1,10 @@
 'use client';
 
-import { User } from '@/types';
+import { User, LeaveType } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Draggable } from '@hello-pangea/dnd';
+import { CalendarX } from 'lucide-react';
 
 interface DraggableEmployeeBadgeProps {
   user: User;
@@ -11,6 +12,9 @@ interface DraggableEmployeeBadgeProps {
   isDragDisabled?: boolean;
   className?: string;
   draggableId?: string; // Optional custom draggableId for assigned users
+  isOnLeave?: boolean;
+  leaveType?: LeaveType;
+  leaveDate?: string;
 }
 
 export default function DraggableEmployeeBadge({ 
@@ -18,7 +22,10 @@ export default function DraggableEmployeeBadge({
   index, 
   isDragDisabled = false,
   className = "",
-  draggableId
+  draggableId,
+  isOnLeave = false,
+  leaveType,
+  leaveDate
 }: DraggableEmployeeBadgeProps) {
   const getUserColor = (userId: string) => {
     const colors = [
@@ -38,12 +45,18 @@ export default function DraggableEmployeeBadge({
 
   const userColors = getUserColor(user.$id);
   const initials = `${user.firstName[0]}${user.lastName[0]}`;
+  
+  // Override colors and make non-draggable if on leave
+  const isEffectivelyDisabled = isDragDisabled || isOnLeave;
+  const badgeColors = isOnLeave 
+    ? { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' }
+    : { bg: userColors.bg, text: 'text-white', border: 'border-0' };
 
   return (
     <Draggable 
       draggableId={draggableId || user.$id} 
       index={index}
-      isDragDisabled={isDragDisabled}
+      isDragDisabled={isEffectivelyDisabled}
     >
       {(provided, snapshot) => (
         <Tooltip>
@@ -56,17 +69,19 @@ export default function DraggableEmployeeBadge({
             >
               <Badge
                 className={`
-                  ${userColors.bg} text-white border-0 
+                  ${badgeColors.bg} ${badgeColors.text} ${badgeColors.border}
                   px-3 py-1 text-sm font-medium
-                  cursor-grab active:cursor-grabbing
+                  ${isOnLeave ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
                   transition-all duration-200
                   ${snapshot.isDragging ? 'shadow-lg scale-105 rotate-2' : 'hover:shadow-md'}
-                  ${isDragDisabled ? 'cursor-default' : ''}
+                  ${isOnLeave ? 'ring-2 ring-orange-200' : ''}
+                  ${isEffectivelyDisabled ? 'cursor-default' : ''}
                 `}
                 style={{
                   transform: snapshot.isDragging ? 'rotate(2deg)' : undefined,
                 }}
               >
+                {isOnLeave && <CalendarX className="h-3 w-3 mr-1" />}
                 {initials}
               </Badge>
             </div>
@@ -74,6 +89,12 @@ export default function DraggableEmployeeBadge({
           <TooltipContent side="top" sideOffset={5}>
             <p className="font-medium">{user.firstName} {user.lastName}</p>
             <p className="text-xs text-muted-foreground">{user.role}</p>
+            {isOnLeave && (
+              <p className="text-xs text-orange-600 font-medium mt-1">
+                🚫 On {leaveType?.replace('_', ' ')} leave
+                {leaveDate && ` (${leaveDate})`}
+              </p>
+            )}
           </TooltipContent>
         </Tooltip>
       )}

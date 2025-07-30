@@ -46,6 +46,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import WeeklySchedule from '@/components/dashboard/WeeklySchedule';
+import EmployeesOnLeave from '@/components/dashboard/EmployeesOnLeave';
 
 // Utility function to ensure unique team members and prevent duplicate React keys
 const deduplicateTeamMembers = (members: User[]): User[] => {
@@ -1685,91 +1686,11 @@ export default function DashboardPage() {
 
         {/* Two Column Layout for Additional Info */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Today's Schedule */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Today&apos;s Schedule
-              </CardTitle>
-              <CardDescription>
-                {todaySchedule.length} shift{todaySchedule.length !== 1 ? 's' : ''} scheduled for today
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full animate-pulse"></div>
-                      <div className="flex-1 space-y-1">
-                        <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
-                        <div className="h-3 bg-gray-200 rounded animate-pulse w-3/4"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : todaySchedule.length > 0 ? (
-                <div className="space-y-4">
-                  {todaySchedule.map((shift) => {
-                    const userColors = getUserColor(shift.userId, shift.onCallRole);
-                    const roleColors = getRoleBadgeColor(shift.onCallRole);
-                    
-                    return (
-                      <div 
-                        key={shift.$id} 
-                        className={`flex items-center space-x-4 p-4 rounded-lg border ${userColors.border} ${userColors.light} hover:shadow-md transition-all duration-200`}
-                      >
-                        <Avatar className="h-12 w-12 ring-2 ring-white shadow-md" style={{ backgroundColor: getHexColor(userColors.bg) }}>
-                          <AvatarFallback className="text-white font-semibold bg-transparent">
-                            {shift._employeeName?.split(' ').map((n: string) => n[0]).join('') || 'UN'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className={`font-semibold text-lg ${userColors.text}`}>
-                            {shift._employeeName || 'Unknown Employee'}
-                          </p>
-                          <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              <span>
-                                {shift.startTime && shift.endTime ? `${shift.startTime} - ${shift.endTime}` : '7:30 AM - 3:30 PM'}
-                              </span>
-                            </div>
-                            {shift.type && (
-                              <div className="flex items-center gap-1">
-                                <CalendarDays className="h-3 w-3" />
-                                <span>{shift.type.replace('_', ' ')}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <Badge 
-                            variant={roleColors.variant}
-                            className={`${roleColors.className} font-medium px-3 py-1`}
-                          >
-                            {shift.onCallRole}
-                          </Badge>
-                          <Badge 
-                            variant="outline" 
-                            className={`text-xs ${userColors.text} ${userColors.border}`}
-                          >
-                            {shift.status.replace('_', ' ')}
-                          </Badge>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No shifts scheduled for today</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Employees on Leave This Week */}
+          <EmployeesOnLeave
+            teamMembers={teamMembers}
+            isLoading={isLoading}
+          />
 
           {/* Pending Approvals */}
           <Card>

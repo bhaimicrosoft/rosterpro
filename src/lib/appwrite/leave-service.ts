@@ -82,11 +82,11 @@ export class LeaveService {
   }
 
   async approveLeaveRequest(leaveId: string): Promise<LeaveRequest> {
-    return this.updateLeaveRequest(leaveId, { status: 'approved' });
+    return this.updateLeaveRequest(leaveId, { status: 'APPROVED' });
   }
 
   async rejectLeaveRequest(leaveId: string): Promise<LeaveRequest> {
-    return this.updateLeaveRequest(leaveId, { status: 'rejected' });
+    return this.updateLeaveRequest(leaveId, { status: 'REJECTED' });
   }
 
   async deleteLeaveRequest(leaveId: string): Promise<void> {
@@ -100,6 +100,55 @@ export class LeaveService {
       
       throw error;
     }
+  }
+
+  async getApprovedLeavesByDateRange(startDate: string, endDate: string): Promise<LeaveRequest[]> {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        [
+          Query.equal('status', 'APPROVED'),
+          Query.lessThanEqual('startDate', endDate),
+          Query.greaterThanEqual('endDate', startDate),
+          Query.orderAsc('startDate')
+        ]
+      );
+      return response.documents as unknown as LeaveRequest[];
+    } catch (error) {
+      
+      throw error;
+    }
+  }
+
+  async getApprovedLeavesForWeek(startDate: string): Promise<LeaveRequest[]> {
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 6);
+    return this.getApprovedLeavesByDateRange(startDate, endDate.toISOString().split('T')[0]);
+  }
+
+  async isUserOnLeave(userId: string, date: string): Promise<boolean> {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        [
+          Query.equal('userId', userId),
+          Query.equal('status', 'APPROVED'),
+          Query.lessThanEqual('startDate', date),
+          Query.greaterThanEqual('endDate', date),
+          Query.limit(1)
+        ]
+      );
+      return response.documents.length > 0;
+    } catch (error) {
+      console.error('Error checking if user is on leave:', error);
+      return false;
+    }
+  }
+
+  async cancelLeaveRequest(leaveId: string): Promise<LeaveRequest> {
+    return this.updateLeaveRequest(leaveId, { status: 'CANCELLED' });
   }
 }
 

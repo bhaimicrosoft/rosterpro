@@ -271,6 +271,26 @@ export default function LeavesPage() {
     }
   }, [user?.role]);
 
+  const handleCancelRequest = useCallback(async (requestId: string) => {
+    try {
+      await leaveService.updateLeaveRequest(requestId, { status: 'CANCELLED' });
+      setLeaveRequests(prev => prev.map(req => 
+        req.$id === requestId ? { ...req, status: 'CANCELLED' as const } : req
+      ));
+      
+      toast({
+        title: "Leave request cancelled",
+        description: "Your leave request has been cancelled successfully.",
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to cancel leave request. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
   const getUserName = (userId: string) => {
     const foundUser = teamMembers.find(member => member.$id === userId);
     return foundUser ? `${foundUser.firstName} ${foundUser.lastName}` : 'Unknown User';
@@ -289,6 +309,7 @@ export default function LeavesPage() {
       case 'APPROVED': return 'bg-green-500';
       case 'REJECTED': return 'bg-red-500';
       case 'PENDING': return 'bg-yellow-500';
+      case 'CANCELLED': return 'bg-gray-500';
       default: return 'bg-gray-500';
     }
   };
@@ -482,7 +503,7 @@ export default function LeavesPage() {
                   <TabsTrigger value="actioned" className="flex items-center gap-2">
                     Actioned
                     <span className="bg-gray-100 text-gray-800 px-2 py-0.5 rounded-full text-xs font-medium">
-                      {filteredRequests.filter(req => req.status === 'APPROVED' || req.status === 'REJECTED').length}
+                      {filteredRequests.filter(req => req.status === 'APPROVED' || req.status === 'REJECTED' || req.status === 'CANCELLED').length}
                     </span>
                   </TabsTrigger>
                 </TabsList>
@@ -538,7 +559,7 @@ export default function LeavesPage() {
                             >
                               {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                             </Badge>
-                            {user.role !== 'EMPLOYEE' && (
+                            {user.role !== 'EMPLOYEE' ? (
                               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                 <Button
                                   size="sm"
@@ -558,6 +579,18 @@ export default function LeavesPage() {
                                   Reject
                                 </Button>
                               </div>
+                            ) : (
+                              <div className="w-full sm:w-auto">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleCancelRequest(request.$id)}
+                                  className="border-red-300 text-red-600 hover:bg-red-50 w-full sm:w-auto"
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Cancel Request
+                                </Button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -567,7 +600,7 @@ export default function LeavesPage() {
                 </TabsContent>
                 
                 <TabsContent value="actioned" className="mt-6">
-                  {filteredRequests.filter(req => req.status === 'APPROVED' || req.status === 'REJECTED').length === 0 ? (
+                  {filteredRequests.filter(req => req.status === 'APPROVED' || req.status === 'REJECTED' || req.status === 'CANCELLED').length === 0 ? (
                     <div className="text-center py-12">
                       <CalendarDays className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-lg font-medium text-muted-foreground">No actioned leave requests</p>
@@ -577,7 +610,7 @@ export default function LeavesPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {filteredRequests.filter(req => req.status === 'APPROVED' || req.status === 'REJECTED').map((request) => (
+                      {filteredRequests.filter(req => req.status === 'APPROVED' || req.status === 'REJECTED' || req.status === 'CANCELLED').map((request) => (
                         <div key={request.$id} className="flex flex-col lg:flex-row lg:items-center justify-between p-4 sm:p-6 border rounded-xl hover:shadow-md transition-shadow bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 gap-4">
                           <div className="space-y-2 flex-1 min-w-0">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
@@ -617,6 +650,25 @@ export default function LeavesPage() {
                             >
                               {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                             </Badge>
+                            {/* Allow employees to cancel approved leaves if future-dated */}
+                            {user.role === 'EMPLOYEE' && request.status === 'APPROVED' && request.userId === user.$id && (
+                              (() => {
+                                const startDate = new Date(request.startDate);
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                return startDate > today;
+                              })() && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleCancelRequest(request.$id)}
+                                  className="border-red-300 text-red-600 hover:bg-red-50"
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Cancel
+                                </Button>
+                              )
+                            )}
                           </div>
                         </div>
                       ))}

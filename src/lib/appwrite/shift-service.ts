@@ -1,6 +1,7 @@
 import { databases, DATABASE_ID, COLLECTIONS } from './config';
 import { Shift } from '@/types';
 import { Query } from 'appwrite';
+import { leaveService } from './leave-service';
 
 export class ShiftService {
   async getAllShifts(): Promise<Shift[]> {
@@ -87,6 +88,12 @@ export class ShiftService {
 
   async createShift(shiftData: Omit<Shift, '$id' | 'createdAt' | 'updatedAt'>): Promise<Shift> {
     try {
+      // Check if user is on approved leave for this date
+      const isOnLeave = await leaveService.isUserOnLeave(shiftData.userId, shiftData.date);
+      if (isOnLeave) {
+        throw new Error(`Cannot assign shift to employee who is on approved leave for ${shiftData.date}. Please check their leave schedule.`);
+      }
+
       // Check for existing shift with same date and role
       const existingShifts = await this.getShiftsByDateRange(shiftData.date, shiftData.date);
       const conflictingShift = existingShifts.find(shift => 
@@ -122,6 +129,19 @@ export class ShiftService {
 
   async updateShift(shiftId: string, shiftData: Partial<Omit<Shift, '$id' | 'createdAt' | 'updatedAt'>>): Promise<Shift> {
     try {
+      // If updating userId or date, check if user is on approved leave
+      if (shiftData.userId || shiftData.date) {
+        // Get current shift data to determine which user/date to check
+        const currentShift = await databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, shiftId);
+        const userIdToCheck = shiftData.userId || currentShift.userId;
+        const dateToCheck = shiftData.date || currentShift.date;
+        
+        const isOnLeave = await leaveService.isUserOnLeave(userIdToCheck, dateToCheck);
+        if (isOnLeave) {
+          throw new Error(`Cannot assign shift to employee who is on approved leave for ${dateToCheck}. Please check their leave schedule.`);
+        }
+      }
+
       // Only include valid Appwrite attributes
       const validData: Record<string, unknown> = {
         updatedAt: new Date().toISOString()

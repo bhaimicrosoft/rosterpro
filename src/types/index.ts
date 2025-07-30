@@ -98,6 +98,22 @@ export interface DashboardShift extends Shift {
   _employeeName: string;
 }
 
+// Leave data for dashboard and schedule displays
+export interface EmployeeOnLeave {
+  $id: string;
+  userId: string;
+  userName: string;
+  date: string;
+  leaveType: LeaveType;
+  leaveId: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface WeeklyLeaveData {
+  [date: string]: EmployeeOnLeave[];
+}
+
 // Form types
 export interface LoginForm {
   username: string;

@@ -17,10 +17,12 @@ import { CalendarDays, Loader2 } from 'lucide-react';
 import { User, AuthUser } from '@/types';
 import { shiftService } from '@/lib/appwrite/shift-service';
 import { userService } from '@/lib/appwrite/user-service';
+import { leaveService } from '@/lib/appwrite/leave-service';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
 import DraggableEmployeeBadge from './DraggableEmployeeBadge';
 import DroppableSlot from './DroppableSlot';
+import { useToast } from '@/hooks/use-toast';
 
 // Utility function to ensure unique team members and prevent duplicate React keys
 const deduplicateTeamMembers = (members: User[]): User[] => {
@@ -51,6 +53,7 @@ interface WeeklyScheduleProps {
 }
 
 export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdate, className }: WeeklyScheduleProps) {
+  const { toast } = useToast();
   const [weekSchedule, setWeekSchedule] = useState<WeeklyScheduleDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [weekStartDate, setWeekStartDate] = useState<Date>(new Date());
@@ -139,6 +142,26 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         return;
       }
 
+      // Check if user is on approved leave for this date
+      const isUserOnLeave = await leaveService.isUserOnLeave(userId, date);
+      if (isUserOnLeave) {
+        console.error('❌ User is on approved leave for this date');
+        
+        // Find user name for better error message
+        const userObj = teamMembers.find(tm => tm.$id === userId);
+        const userName = userObj ? `${userObj.firstName} ${userObj.lastName}` : 'This employee';
+        
+        toast({
+          title: "Employee on Leave",
+          description: `${userName} is on approved leave for ${date}. Choose another employee or a date when they are available.`,
+          variant: "default",
+          className: "border-blue-200 bg-blue-50 text-blue-800",
+        });
+        
+        setCreatingShift(null);
+        return;
+      }
+
       // Create proper date strings for querying (add time part for consistency)
       const startOfDay = `${date}T00:00:00.000Z`;
       const endOfDay = `${date}T23:59:59.999Z`;
@@ -193,7 +216,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       console.error('❌ Error in drag end handler');
       setCreatingShift(null);
     }
-  }, [onScheduleUpdate]);
+  }, [onScheduleUpdate, teamMembers, toast]);
 
   // Execute shift replacement
   const executeShiftReplacement = useCallback(async () => {
@@ -313,7 +336,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       // Fetch shifts and users
       const [shiftsData, usersData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
-        userService.getAllUsers() // Always fetch all users so employees can see full team schedule
+        userService.getAllUsers(), // Always fetch all users so employees can see full team schedule
       ]);
       
       
@@ -330,8 +353,6 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         const dayShifts = shiftsData.filter(shift => 
           shift.date.split('T')[0] === day.date
         );
-        
-        
         
         const primaryShift = dayShifts.find(s => s.onCallRole === 'PRIMARY');
         const backupShift = dayShifts.find(s => s.onCallRole === 'BACKUP');

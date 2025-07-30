@@ -1,0 +1,254 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { CalendarX, Users, Clock } from 'lucide-react';
+import { EmployeeOnLeave, WeeklyLeaveData, LeaveType, User } from '@/types';
+import { leaveService } from '@/lib/appwrite/leave-service';
+import { userService } from '@/lib/appwrite/user-service';
+
+interface EmployeesOnLeaveProps {
+  teamMembers: User[];
+  isLoading?: boolean;
+  className?: string;
+}
+
+const getLeaveTypeColor = (leaveType: LeaveType) => {
+  switch (leaveType) {
+    case 'PAID':
+      return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'SICK':
+      return 'bg-red-100 text-red-800 border-red-200';
+    case 'COMP_OFF':
+      return 'bg-green-100 text-green-800 border-green-200';
+    default:
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+};
+
+const getLeaveTypeIcon = (leaveType: LeaveType) => {
+  switch (leaveType) {
+    case 'PAID':
+      return '🏖️';
+    case 'SICK':
+      return '🤒';
+    case 'COMP_OFF':
+      return '⚖️';
+    default:
+      return '📅';
+  }
+};
+
+const formatDisplayName = (firstName: string, lastName: string) => {
+  return `${firstName} ${lastName}`;
+};
+
+const getInitials = (firstName: string, lastName: string) => {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+};
+
+const formatDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { 
+    weekday: 'short', 
+    month: 'short', 
+    day: 'numeric' 
+  });
+};
+
+const getDateRange = () => {
+  const today = new Date();
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() - today.getDay()); // Start from Sunday
+  
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(startOfWeek);
+    date.setDate(startOfWeek.getDate() + i);
+    dates.push(date.toISOString().split('T')[0]);
+  }
+  return dates;
+};
+
+export default function EmployeesOnLeave({ teamMembers, isLoading = false, className = '' }: EmployeesOnLeaveProps) {
+  const [weeklyLeaveData, setWeeklyLeaveData] = useState<WeeklyLeaveData>({});
+  const [loadingLeaves, setLoadingLeaves] = useState(false);
+
+  useEffect(() => {
+    const fetchWeeklyLeaveData = async () => {
+      if (!teamMembers || teamMembers.length === 0) return;
+      
+      setLoadingLeaves(true);
+      try {
+        const dates = getDateRange();
+        const startDate = dates[0];
+        const endDate = dates[dates.length - 1];
+        
+        // Get all approved leaves for this week
+        const leaves = await leaveService.getApprovedLeavesByDateRange(startDate, endDate);
+        
+        // Build weekly leave data structure
+        const weeklyData: WeeklyLeaveData = {};
+        
+        // Initialize all dates
+        dates.forEach(date => {
+          weeklyData[date] = [];
+        });
+        
+        // Process each leave request
+        leaves.forEach(leave => {
+          const user = teamMembers.find(tm => tm.$id === leave.userId);
+          if (!user) return;
+          
+          // Check each date in the leave range
+          const leaveStart = new Date(leave.startDate);
+          const leaveEnd = new Date(leave.endDate);
+          
+          dates.forEach(date => {
+            const currentDate = new Date(date);
+            if (currentDate >= leaveStart && currentDate <= leaveEnd) {
+              weeklyData[date].push({
+                $id: `${leave.$id}-${date}`,
+                userId: user.$id,
+                userName: formatDisplayName(user.firstName, user.lastName),
+                date,
+                leaveType: leave.type,
+                leaveId: leave.$id,
+                startDate: leave.startDate,
+                endDate: leave.endDate
+              });
+            }
+          });
+        });
+        
+        setWeeklyLeaveData(weeklyData);
+      } catch (error) {
+        console.error('Error fetching weekly leave data:', error);
+      } finally {
+        setLoadingLeaves(false);
+      }
+    };
+
+    fetchWeeklyLeaveData();
+  }, [teamMembers]);
+
+  // Calculate total employees on leave this week
+  const totalEmployeesOnLeave = Object.values(weeklyLeaveData)
+    .flat()
+    .reduce((acc, curr) => {
+      if (!acc.includes(curr.userId)) {
+        acc.push(curr.userId);
+      }
+      return acc;
+    }, [] as string[]).length;
+
+  const isCurrentlyLoading = isLoading || loadingLeaves;
+
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarX className="h-5 w-5 text-orange-600" />
+          Employees on Leave This Week
+        </CardTitle>
+        <CardDescription>
+          {isCurrentlyLoading 
+            ? 'Loading leave data...' 
+            : `${totalEmployeesOnLeave} employee${totalEmployeesOnLeave !== 1 ? 's' : ''} on leave this week`
+          }
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isCurrentlyLoading ? (
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="space-y-2">
+                <div className="h-4 bg-gray-200 rounded animate-pulse w-24"></div>
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gray-200 rounded-full animate-pulse"></div>
+                  <div className="flex-1 space-y-1">
+                    <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
+                    <div className="h-3 bg-gray-200 rounded animate-pulse w-3/4"></div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : totalEmployeesOnLeave > 0 ? (
+          <div className="space-y-4">
+            {getDateRange().map(date => {
+              const employeesOnLeave = weeklyLeaveData[date] || [];
+              if (employeesOnLeave.length === 0) return null;
+              
+              return (
+                <div key={date} className="space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+                    <Clock className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-700">
+                      {formatDate(date)}
+                    </span>
+                    <Badge variant="outline" className="text-xs">
+                      {employeesOnLeave.length}
+                    </Badge>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
+                    {employeesOnLeave.map((employee) => {
+                      const user = teamMembers.find(tm => tm.$id === employee.userId);
+                      if (!user) return null;
+                      
+                      return (
+                        <div 
+                          key={employee.$id}
+                          className={`flex items-center space-x-3 p-3 rounded-lg border transition-all duration-200 hover:shadow-sm ${getLeaveTypeColor(employee.leaveType)}`}
+                        >
+                          <div className="relative">
+                            <Avatar className="h-10 w-10 ring-2 ring-white shadow-sm">
+                              <AvatarFallback className="bg-orange-100 text-orange-800 font-semibold">
+                                {getInitials(user.firstName, user.lastName)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="absolute -top-1 -right-1 text-xs">
+                              {getLeaveTypeIcon(employee.leaveType)}
+                            </div>
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate">
+                              {employee.userName.split(" ")[0]}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${getLeaveTypeColor(employee.leaveType)}`}
+                              >
+                                {employee.leaveType.replace('_', ' ')}
+                              </Badge>
+                              {employee.startDate !== employee.endDate && (
+                                <span className="text-xs text-gray-500">
+                                  Multi-day
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <Users className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+            <p className="text-sm font-medium">No employees on leave this week</p>
+            <p className="text-xs text-gray-400 mt-1">All team members are available</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
