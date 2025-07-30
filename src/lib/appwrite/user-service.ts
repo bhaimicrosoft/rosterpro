@@ -12,7 +12,7 @@ export class UserService {
       );
       return response.documents as unknown as User[];
     } catch (error) {
-      console.error('Error fetching all users:', error);
+      
       throw error;
     }
   }
@@ -26,7 +26,7 @@ export class UserService {
       );
       return response as unknown as User;
     } catch (error) {
-      console.error('Error fetching user by ID:', error);
+      
       throw error;
     }
   }
@@ -43,7 +43,7 @@ export class UserService {
       );
       return response.documents as unknown as User[];
     } catch (error) {
-      console.error('Error fetching users by role:', error);
+      
       throw error;
     }
   }
@@ -60,7 +60,7 @@ export class UserService {
       );
       return response.documents as unknown as User[];
     } catch (error) {
-      console.error('Error fetching users by manager:', error);
+      
       throw error;
     }
   }
@@ -75,7 +75,7 @@ export class UserService {
       );
       return response as unknown as User;
     } catch (error) {
-      console.error('Error creating user:', error);
+      
       throw error;
     }
   }
@@ -90,7 +90,7 @@ export class UserService {
       );
       return response as unknown as User;
     } catch (error) {
-      console.error('Error updating user:', error);
+      
       throw error;
     }
   }
@@ -103,7 +103,7 @@ export class UserService {
         userId
       );
     } catch (error) {
-      console.error('Error deleting user:', error);
+      
       throw error;
     }
   }

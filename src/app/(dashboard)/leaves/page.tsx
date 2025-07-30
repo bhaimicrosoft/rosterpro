@@ -54,8 +54,8 @@ export default function LeavesPage() {
       
       setLeaveRequests(requests);
       setFilteredRequests(requests);
-    } catch (error) {
-      console.error('Error fetching leave data:', error);
+    } catch {
+      
       setLeaveRequests([]);
       setFilteredRequests([]);
     } finally {
@@ -68,7 +68,7 @@ export default function LeavesPage() {
     if (!user) return;
 
     try {
-      console.log('Leaves: Silent refresh triggered');
+      
       
       let requests: LeaveRequest[] = [];
       let users: UserType[] = [];
@@ -83,8 +83,8 @@ export default function LeavesPage() {
       setLeaveRequests(requests);
       setTeamMembers(users);
       
-    } catch (error) {
-      console.error('Error in silent refresh:', error);
+    } catch {
+      
     }
   }, [user]);
 
@@ -96,7 +96,7 @@ export default function LeavesPage() {
   useEffect(() => {
     if (!user) return;
 
-    console.log('Setting up real-time subscriptions for leave requests...');
+    
     
     const unsubscribe = client.subscribe(
       [
@@ -104,7 +104,7 @@ export default function LeavesPage() {
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        console.log('Leave requests real-time update received:', response);
+        
         
         const events = response.events || [];
         const payload = response.payload;
@@ -120,11 +120,11 @@ export default function LeavesPage() {
           event.includes('.delete') || event.includes('documents.delete')
         );
         
-        console.log('Leave event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
 
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log(`Processing ${eventType} event for instant leave update...`, payload);
+          
           
           try {
             if (hasCreateEvent || hasUpdateEvent) {
@@ -140,13 +140,11 @@ export default function LeavesPage() {
                     type: payload.type,
                     reason: payload.reason,
                     status: payload.status || 'PENDING',
-                    managerComments: payload.managerComments || '',
-                    createdAt: payload.createdAt || new Date().toISOString(),
-                    updatedAt: payload.updatedAt || new Date().toISOString(),
+                    managerComment: payload.managerComment || '',
                     $createdAt: payload.$createdAt || new Date().toISOString(),
                     $updatedAt: payload.$updatedAt || new Date().toISOString()
                   };
-                  console.log(`Instantly ${eventType === 'CREATE' ? 'added' : 'updated'} leave request:`, payload.type);
+                  
                   return [...filteredRequests, newRequest];
                 }
                 return filteredRequests;
@@ -155,7 +153,7 @@ export default function LeavesPage() {
               // For DELETE: Remove leave request directly
               setLeaveRequests(prevRequests => {
                 const filtered = prevRequests.filter(lr => lr.$id !== payload.$id);
-                console.log('Instantly removed leave request');
+                
                 return filtered;
               });
             }
@@ -168,8 +166,8 @@ export default function LeavesPage() {
               duration: 2000,
             });
             
-          } catch (error) {
-            console.error('Error in instant leave update, falling back to silent refresh:', error);
+          } catch {
+            
             // Fallback to silent refresh only if instant update fails
             setTimeout(() => {
               silentRefreshLeaveData();
@@ -180,7 +178,7 @@ export default function LeavesPage() {
     );
 
     return () => {
-      console.log('Cleaning up leave requests real-time subscriptions...');
+      
       unsubscribe();
     };
   }, [user, toast, silentRefreshLeaveData]);
@@ -194,8 +192,8 @@ export default function LeavesPage() {
         description: "Leave requests have been updated successfully.",
         duration: 2000,
       });
-    } catch (error) {
-      console.error('Error refreshing leave data:', error);
+    } catch {
+      
       toast({
         title: "Refresh Failed",
         description: "Failed to refresh leave data. Please try again.",
@@ -242,8 +240,8 @@ export default function LeavesPage() {
         reason: '',
       });
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error creating leave request:', error);
+    } catch {
+      
     }
   };
 
@@ -255,8 +253,8 @@ export default function LeavesPage() {
       setLeaveRequests(prev => prev.map(req => 
         req.$id === requestId ? { ...req, status: 'APPROVED' as const } : req
       ));
-    } catch (error) {
-      console.error('Error approving request:', error);
+    } catch {
+      
     }
   }, [user?.role]);
 
@@ -268,8 +266,8 @@ export default function LeavesPage() {
       setLeaveRequests(prev => prev.map(req => 
         req.$id === requestId ? { ...req, status: 'REJECTED' as const } : req
       ));
-    } catch (error) {
-      console.error('Error rejecting request:', error);
+    } catch {
+      
     }
   }, [user?.role]);
 
@@ -525,6 +523,14 @@ export default function LeavesPage() {
                             <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded break-words">
                               {request.reason}
                             </p>
+                            {request.managerComment && (
+                              <div className="mt-2">
+                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Comment:</p>
+                                <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded break-words">
+                                  {request.managerComment}
+                                </p>
+                              </div>
+                            )}
                           </div>
                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 lg:ml-4">
                             <Badge 
@@ -596,6 +602,14 @@ export default function LeavesPage() {
                             <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded break-words">
                               {request.reason}
                             </p>
+                            {request.managerComment && (
+                              <div className="mt-2">
+                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Comment:</p>
+                                <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded break-words">
+                                  {request.managerComment}
+                                </p>
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center space-x-3">
                             <Badge 

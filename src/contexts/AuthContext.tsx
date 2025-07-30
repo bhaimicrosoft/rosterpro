@@ -44,7 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     } catch {
-      console.log('No active session');
+      
     } finally {
       setIsLoading(false);
     }
@@ -83,7 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return true;
     } catch (error) {
-      console.error('Login error:', error);
+      
       return false;
     } finally {
       setIsLoading(false);
@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await account.deleteSession('current');
       setUser(null);
     } catch (error) {
-      console.error('Logout error:', error);
+      
     }
   };
 
@@ -104,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await account.updatePassword(newPassword);
       return true;
     } catch (error) {
-      console.error('Password update error:', error);
+      
       return false;
     }
   };

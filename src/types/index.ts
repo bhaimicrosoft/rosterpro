@@ -42,6 +42,7 @@ export interface LeaveRequest {
   type: LeaveType;
   status: LeaveStatus;
   reason?: string;
+  managerComment?: string;
   $createdAt: string;
   $updatedAt: string;
 }
@@ -58,6 +59,7 @@ export interface SwapRequest {
   reason: string;
   status: SwapStatus;
   responseNotes?: string;
+  managerComment?: string;
   requestedAt: string;
   respondedAt?: string;
   $createdAt: string;

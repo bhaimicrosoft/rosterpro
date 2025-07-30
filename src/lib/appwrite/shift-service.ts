@@ -12,7 +12,7 @@ export class ShiftService {
       );
       return response.documents as unknown as Shift[];
     } catch (error) {
-      console.error('Error fetching all shifts:', error);
+      
       throw error;
     }
   }
@@ -29,7 +29,7 @@ export class ShiftService {
       );
       return response.documents as unknown as Shift[];
     } catch (error) {
-      console.error('Error fetching shifts by user:', error);
+      
       throw error;
     }
   }
@@ -47,7 +47,7 @@ export class ShiftService {
       );
       return response.documents as unknown as Shift[];
     } catch (error) {
-      console.error('Error fetching shifts by date range:', error);
+      
       throw error;
     }
   }
@@ -74,7 +74,7 @@ export class ShiftService {
       );
       return response.documents as unknown as Shift[];
     } catch (error) {
-      console.error('Error fetching upcoming shifts:', error);
+      
       throw error;
     }
   }
@@ -109,7 +109,7 @@ export class ShiftService {
       );
       return response as unknown as Shift;
     } catch (error) {
-      console.error('Error creating shift:', error);
+      
       throw error;
     }
   }
@@ -134,7 +134,7 @@ export class ShiftService {
       );
       return response as unknown as Shift;
     } catch (error) {
-      console.error('Error updating shift:', error);
+      
       throw error;
     }
   }
@@ -147,7 +147,7 @@ export class ShiftService {
         shiftId
       );
     } catch (error) {
-      console.error('Error deleting shift:', error);
+      
       throw error;
     }
   }

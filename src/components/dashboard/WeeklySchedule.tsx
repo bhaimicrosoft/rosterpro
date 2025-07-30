@@ -58,19 +58,19 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
 
   const fetchWeeklyData = useCallback(async () => {
     if (!user) {
-      console.log('WeeklySchedule: No user found, skipping fetch');
+      
       return;
     }
     
     try {
       setLoading(true);
-      console.log('WeeklySchedule: Starting fetch for user:', user.role, user.$id);
+      
       
       // Get this week's date range
       const weekDates = getWeekDates();
       const startDate = weekDates[0].date;
       const endDate = weekDates[6].date;
-      console.log('WeeklySchedule: Date range:', startDate, 'to', endDate);
+      
       
       // Fetch shifts and users
       const [shiftsData, usersData] = await Promise.all([
@@ -78,8 +78,8 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
         userService.getAllUsers() // Always fetch all users so employees can see full team schedule
       ]);
       
-      console.log('WeeklySchedule: Fetched shifts:', shiftsData.length, 'users:', usersData.length);
-      console.log('WeeklySchedule: Shifts data:', shiftsData);
+      
+      
       
       // Create user map for quick lookup - handle both User and AuthUser types
       const userMap = new Map();
@@ -93,7 +93,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
           shift.date.split('T')[0] === day.date
         );
         
-        console.log(`WeeklySchedule: Day ${day.date} has ${dayShifts.length} shifts:`, dayShifts);
+        
         
         const primaryShift = dayShifts.find(s => s.onCallRole === 'PRIMARY');
         const backupShift = dayShifts.find(s => s.onCallRole === 'BACKUP');
@@ -105,10 +105,10 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
         };
       });
       
-      console.log('WeeklySchedule: Final schedule data:', scheduleData);
+      
       setWeekSchedule(scheduleData);
     } catch (error) {
-      console.error('WeeklySchedule: Error fetching weekly schedule:', error);
+      
     } finally {
       setLoading(false);
     }
@@ -119,7 +119,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
     if (!user) return;
     
     try {
-      console.log('WeeklySchedule: Silent refetch triggered');
+      
       
       // Get this week's date range
       const weekDates = getWeekDates();
@@ -155,9 +155,9 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
       });
       
       setWeekSchedule(scheduleData);
-      console.log('WeeklySchedule: Silent refetch completed');
+      
     } catch (error) {
-      console.error('WeeklySchedule: Error in silent refetch:', error);
+      
     }
   }, [user, getWeekDates]);
 
@@ -169,7 +169,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
   useEffect(() => {
     if (!user) return;
 
-    console.log('Setting up real-time subscription for weekly schedule...');
+    
     
     const unsubscribe = client.subscribe(
       [
@@ -177,7 +177,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        console.log('Weekly schedule real-time update received:', response);
+        
         
         const events = response.events || [];
         const payload = response.payload;
@@ -193,11 +193,11 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
           event.includes('.delete') || event.includes('documents.delete')
         );
         
-        console.log('Event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
         
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log(`Processing ${eventType} event for instant update...`, payload);
+          
           
           // Get current week dates to check if this shift is relevant
           const weekDates = getWeekDates();
@@ -227,13 +227,13 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                     }
                     
                     newSchedule[dayIndex] = updatedDay;
-                    console.log(`Instantly updated ${payload.onCallRole} for ${shiftDate}:`, updatedUser.firstName);
+                    
                   }
                   
                   return newSchedule;
                 });
               } catch (error) {
-                console.error('Error getting user for instant update, falling back to silent refetch:', error);
+                
                 // Fallback to silent refetch only if user fetch fails (no loading spinner)
                 setTimeout(() => {
                   silentRefetchWeeklyData();
@@ -255,21 +255,21 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                   }
                   
                   newSchedule[dayIndex] = updatedDay;
-                  console.log(`Instantly removed ${payload.onCallRole} assignment for ${shiftDate}`);
+                  
                 }
                 
                 return newSchedule;
               });
             }
           } else {
-            console.log('Shift change outside current week, ignoring instant update');
+            
           }
         }
       }
     );
 
     return () => {
-      console.log('Cleaning up weekly schedule real-time subscription...');
+      
       unsubscribe();
     };
   }, [user, getWeekDates, fetchWeeklyData, silentRefetchWeeklyData]);

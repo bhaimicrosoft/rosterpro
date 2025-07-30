@@ -199,7 +199,7 @@ export default function SchedulePage() {
       setAllUsers(usersData as User[]);
 
     } catch (error) {
-      console.error('Error fetching schedule data:', error);
+      
     }
   }, [user, currentDate, viewMode]);
 
@@ -208,7 +208,7 @@ export default function SchedulePage() {
     if (!user) return;
     
     try {
-      console.log('Schedule Management: Silent refetch triggered');
+      
       
       let startDateStr: string;
       let endDateStr: string;
@@ -246,7 +246,7 @@ export default function SchedulePage() {
       setAllUsers(usersData as User[]);
       
     } catch (error) {
-      console.error('Error in silent refetch:', error);
+      
     }
   }, [user, currentDate, viewMode]);
 
@@ -277,7 +277,7 @@ export default function SchedulePage() {
   useEffect(() => {
     if (!user) return;
 
-    console.log('Setting up real-time subscription for schedule management...');
+    
     
     const unsubscribe = client.subscribe(
       [
@@ -285,7 +285,7 @@ export default function SchedulePage() {
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        console.log('Schedule management real-time update received:', response);
+        
         
         const events = response.events || [];
         const payload = response.payload;
@@ -301,11 +301,11 @@ export default function SchedulePage() {
           event.includes('.delete') || event.includes('documents.delete')
         );
         
-        console.log('Event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
         
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log(`Processing ${eventType} event for instant schedule update...`, payload);
+          
           
           try {
             if (hasCreateEvent || hasUpdateEvent) {
@@ -329,7 +329,7 @@ export default function SchedulePage() {
                     $createdAt: payload.$createdAt || new Date().toISOString(),
                     $updatedAt: payload.$updatedAt || new Date().toISOString()
                   };
-                  console.log(`Instantly added/updated ${payload.onCallRole} shift for ${payload.date}:`, updatedUser.firstName);
+                  
                   return [...filteredShifts, newShift];
                 }
                 return filteredShifts;
@@ -338,7 +338,7 @@ export default function SchedulePage() {
               // For DELETE: Remove shift directly
               setShifts(prevShifts => {
                 const filtered = prevShifts.filter(s => s.$id !== payload.$id);
-                console.log(`Instantly removed shift for ${payload.date}`);
+                
                 return filtered;
               });
             }
@@ -352,7 +352,7 @@ export default function SchedulePage() {
             });
             
           } catch (error) {
-            console.error('Error in instant schedule update, falling back to silent refetch:', error);
+            
             // Fallback to silent refetch only if instant update fails
             setTimeout(() => {
               silentRefetchScheduleData();
@@ -363,7 +363,7 @@ export default function SchedulePage() {
     );
 
     return () => {
-      console.log('Cleaning up schedule management real-time subscription...');
+      
       unsubscribe();
     };
   }, [user, toast, silentRefetchScheduleData]);
@@ -432,7 +432,7 @@ export default function SchedulePage() {
       // Refresh data
       await fetchScheduleData();
     } catch (error) {
-      console.error('Error assigning employee:', error);
+      
       toast({
         variant: "destructive",
         title: "Assignment Failed",
@@ -475,7 +475,7 @@ export default function SchedulePage() {
         });
       }
     } catch (error) {
-      console.error('Error removing assignment:', error);
+      
       toast({
         variant: "destructive",
         title: "Removal Failed",
@@ -497,7 +497,7 @@ export default function SchedulePage() {
         description: "Schedule data has been updated successfully.",
       });
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      
       toast({
         variant: "destructive",
         title: "Refresh Failed",

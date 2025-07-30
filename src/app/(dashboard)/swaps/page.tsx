@@ -54,8 +54,8 @@ export default function SwapsPage() {
       setSwapRequests(requests);
       setFilteredRequests(requests);
       setMyShifts(shifts);
-    } catch (error) {
-      console.error('Error fetching swap data:', error);
+    } catch {
+      
       setSwapRequests([]);
       setFilteredRequests([]);
     } finally {
@@ -68,7 +68,7 @@ export default function SwapsPage() {
     if (!user) return;
 
     try {
-      console.log('Swaps: Silent refresh triggered');
+      
       
       let requests: SwapRequest[] = [];
       let users: UserType[] = [];
@@ -83,8 +83,8 @@ export default function SwapsPage() {
       setSwapRequests(requests);
       setTeamMembers(users);
       
-    } catch (error) {
-      console.error('Error in silent refresh:', error);
+    } catch {
+      
     }
   }, [user]);
 
@@ -106,7 +106,7 @@ export default function SwapsPage() {
   useEffect(() => {
     if (!user) return;
 
-    console.log('Setting up real-time subscriptions for swap requests...');
+    
     
     const unsubscribe = client.subscribe(
       [
@@ -115,7 +115,7 @@ export default function SwapsPage() {
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        console.log('Swap requests real-time update received:', response);
+        
         
         const events = response.events || [];
         const payload = response.payload;
@@ -131,11 +131,11 @@ export default function SwapsPage() {
           event.includes('.delete') || event.includes('documents.delete')
         );
         
-        console.log('Swap event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
 
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log(`Processing ${eventType} event for instant swap update...`, payload);
+          
           
           try {
             // Handle swap request updates
@@ -149,17 +149,17 @@ export default function SwapsPage() {
                       $id: payload.$id,
                       requesterUserId: payload.requesterUserId,
                       targetUserId: payload.targetUserId || '',
-                      myShiftId: payload.myShiftId,
-                      theirShiftId: payload.theirShiftId || '',
+                      requesterShiftId: payload.requesterShiftId || payload.myShiftId,
+                      targetShiftId: payload.targetShiftId || payload.theirShiftId || '',
                       reason: payload.reason,
                       status: payload.status || 'PENDING',
-                      managerComments: payload.managerComments || '',
-                      createdAt: payload.createdAt || new Date().toISOString(),
-                      updatedAt: payload.updatedAt || new Date().toISOString(),
+                      managerComment: payload.managerComment || '',
+                      requestedAt: payload.requestedAt || new Date().toISOString(),
+                      respondedAt: payload.respondedAt,
                       $createdAt: payload.$createdAt || new Date().toISOString(),
                       $updatedAt: payload.$updatedAt || new Date().toISOString()
                     };
-                    console.log(`Instantly ${eventType === 'CREATE' ? 'added' : 'updated'} swap request`);
+                    
                     return [...filteredRequests, newRequest];
                   }
                   return filteredRequests;
@@ -168,7 +168,7 @@ export default function SwapsPage() {
                 // For DELETE: Remove swap request directly
                 setSwapRequests(prevRequests => {
                   const filtered = prevRequests.filter(sr => sr.$id !== payload.$id);
-                  console.log('Instantly removed swap request');
+                  
                   return filtered;
                 });
               }
@@ -183,8 +183,8 @@ export default function SwapsPage() {
               duration: 2000,
             });
             
-          } catch (error) {
-            console.error('Error in instant swap update, falling back to silent refresh:', error);
+          } catch {
+            
             // Fallback to silent refresh only if instant update fails
             setTimeout(() => {
               silentRefreshSwapData();
@@ -195,7 +195,7 @@ export default function SwapsPage() {
     );
 
     return () => {
-      console.log('Cleaning up swap requests real-time subscriptions...');
+      
       unsubscribe();
     };
   }, [user, toast, silentRefreshSwapData]);
@@ -208,7 +208,7 @@ export default function SwapsPage() {
         requesterShiftId: newSwapRequest.myShiftId,
         requesterUserId: user.$id,
         reason: newSwapRequest.reason,
-        status: 'pending',
+        status: 'PENDING',
         requestedAt: new Date().toISOString(),
       };
 
@@ -230,8 +230,8 @@ export default function SwapsPage() {
         reason: '',
       });
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error creating swap request:', error);
+    } catch {
+      
     }
   };
 
@@ -239,12 +239,12 @@ export default function SwapsPage() {
     if (user?.role === 'EMPLOYEE') return;
 
     try {
-      await swapService.updateSwapRequest(swapId, { status: 'approved' });
+      await swapService.updateSwapRequest(swapId, { status: 'APPROVED' });
       setSwapRequests(prev => prev.map(swap => 
-        swap.$id === swapId ? { ...swap, status: 'approved' } : swap
+        swap.$id === swapId ? { ...swap, status: 'APPROVED' } : swap
       ));
-    } catch (error) {
-      console.error('Error approving swap:', error);
+    } catch {
+      
     }
   }, [user?.role]);
 
@@ -252,12 +252,12 @@ export default function SwapsPage() {
     if (user?.role === 'EMPLOYEE') return;
 
     try {
-      await swapService.updateSwapRequest(swapId, { status: 'rejected' });
+      await swapService.updateSwapRequest(swapId, { status: 'REJECTED' });
       setSwapRequests(prev => prev.map(swap => 
-        swap.$id === swapId ? { ...swap, status: 'rejected' } : swap
+        swap.$id === swapId ? { ...swap, status: 'REJECTED' } : swap
       ));
-    } catch (error) {
-      console.error('Error rejecting swap:', error);
+    } catch {
+      
     }
   }, [user?.role]);
 
@@ -268,9 +268,9 @@ export default function SwapsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'approved': return 'bg-green-500';
-      case 'rejected': return 'bg-red-500';
-      case 'pending': return 'bg-yellow-500';
+      case 'APPROVED': return 'bg-green-500';
+      case 'REJECTED': return 'bg-red-500';
+      case 'PENDING': return 'bg-yellow-500';
       default: return 'bg-gray-500';
     }
   };
@@ -364,7 +364,7 @@ export default function SwapsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-                  {swapRequests.filter(req => req.status === 'pending').length}
+                  {swapRequests.filter(req => req.status === 'PENDING').length}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">awaiting response</p>
               </CardContent>
@@ -379,7 +379,7 @@ export default function SwapsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-                  {swapRequests.filter(req => req.status === 'approved').length}
+                  {swapRequests.filter(req => req.status === 'APPROVED').length}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">completed swaps</p>
               </CardContent>
@@ -469,12 +469,20 @@ export default function SwapsPage() {
                       <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded">
                         {request.reason}
                       </p>
+                      {request.managerComment && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Comment:</p>
+                          <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+                            {request.managerComment}
+                          </p>
+                        </div>
+                      )}
                       <div className="text-xs text-muted-foreground">
                         Requested on: {new Date(request.$createdAt).toLocaleDateString()}
                       </div>
                     </div>
                     <div className="flex items-center space-x-3">
-                      {user.role !== 'EMPLOYEE' && request.status === 'pending' && (
+                      {user.role !== 'EMPLOYEE' && request.status === 'PENDING' && (
                         <div className="flex space-x-2">
                           <Button
                             size="sm"

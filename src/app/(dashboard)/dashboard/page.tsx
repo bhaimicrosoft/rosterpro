@@ -78,56 +78,65 @@ export default function DashboardPage() {
   const [todaySchedule, setTodaySchedule] = useState<DashboardShift[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
 
+  // Approval dialog state
+  const [selectedApproval, setSelectedApproval] = useState<DashboardApprovalRequest | null>(null);
+  const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false);
+  const [approvalComment, setApprovalComment] = useState('');
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false);
+
   const userId = user?.$id;
   const userRole = user?.role;
   
+  // Helper function to format dates
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      });
+    } catch {
+      return dateString;
+    }
+  };
+  
   const fetchDashboardData = useCallback(async () => {
     if (!userId || !userRole) {
-      console.log('Dashboard: Missing userId or userRole, skipping fetch');
       return;
     }
     
     setIsLoading(true);
     try {
-      console.log('Dashboard: Starting fetch for user:', userRole, userId);
       
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       // Handle UPPERCASE roles from Appwrite
       const normalizedUserRole = userRole?.toUpperCase();
       const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
 
-      console.log('Dashboard: User role normalized:', normalizedUserRole, 'isManagerOrAdmin:', isManagerOrAdmin);
-
       const [
         allUsers,
-        allManagersList,
         todayShifts,
         upcomingShifts,
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
-        isManagerOrAdmin ? userService.getAllUsers() : [],
-        userService.getManagers(), // Always fetch managers for the dropdown
+        userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(today, today),
-        shiftService.getShiftsByDateRange(today, nextWeek),
+        shiftService.getShiftsByDateRange(tomorrow, nextWeek), // Exclude today from upcoming shifts
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
 
-      console.log('Dashboard: Fetched data counts:', {
-        allUsers: allUsers.length,
-        allManagersList: allManagersList.length,
-        todayShifts: todayShifts.length,
-        upcomingShifts: upcomingShifts.length,
-        allLeaveRequests: allLeaveRequests.length,
-        allSwapRequests: allSwapRequests.length,
-      });
+      // Filter data based on user role (use allUsers for filtering)
+      const displayUsers = allUsers;
 
-      // Filter data based on user role
-      const filteredUsers = allUsers.filter((u: User) => u.role !== 'ADMIN');
+      // Filter and process data
+      const employeesOnly = displayUsers.filter((u: User) => u.role === 'EMPLOYEE');
       const filteredLeaveRequests = isManagerOrAdmin 
         ? allLeaveRequests 
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
@@ -135,25 +144,19 @@ export default function DashboardPage() {
         ? allSwapRequests 
         : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
 
-      console.log('Dashboard: Filtered data counts:', {
-        filteredUsers: filteredUsers.length,
-        filteredLeaveRequests: filteredLeaveRequests.length,
-        filteredSwapRequests: filteredSwapRequests.length,
-      });
-
       // Build team members list with user names
-      const userMap = new Map(allUsers.map((u: User) => [u.$id, u]));
+      const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
       
-      // Calculate dashboard stats
+      // Calculate dashboard stats - fix employee count to only include employees
       const dashboardStats: DashboardStats = {
-        totalEmployees: filteredUsers.length,
+        totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
         todayShifts: todayShifts.length,
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
         upcomingShifts: upcomingShifts.length,
       };
 
-      console.log('Dashboard: Calculated stats:', dashboardStats);
+      
 
       // Build pending approvals (only for managers/admins)
       const pendingApprovalsList: DashboardApprovalRequest[] = [];
@@ -209,7 +212,7 @@ export default function DashboardPage() {
           });
       }
 
-      console.log('Dashboard: Pending approvals:', pendingApprovalsList.length);
+      
 
       // Build today's schedule with employee names
       const todayScheduleWithNames: DashboardShift[] = todayShifts.map((shift: Shift) => {
@@ -220,24 +223,24 @@ export default function DashboardPage() {
         };
       });
 
-      console.log('Dashboard: Today schedule with names:', todayScheduleWithNames.length);
+      
 
       // Set all the state
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleWithNames);
-      setTeamMembers(filteredUsers);
+      setTeamMembers(employeesOnly); // Use employees only for shift assignment dropdown
 
-      console.log('Dashboard: All data set successfully');
+      
     } catch (error) {
-      console.error('Dashboard: Error fetching dashboard data:', error);
+      
       
       // Check if it's a collection not found error
       if (error && typeof error === 'object' && 'message' in error && 
           typeof error.message === 'string' && 
           (error.message.includes('Collection with the requested ID could not be found') ||
            error.message.includes('Database not found'))) {
-        console.error('Database collections not found. Please set up the database first.');
+        
         setHasCollectionError(true);
       }
       
@@ -262,10 +265,11 @@ export default function DashboardPage() {
     if (!userId || !userRole) return;
     
     try {
-      console.log('Dashboard: Silent refresh triggered');
+      
       
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       // Handle UPPERCASE roles from Appwrite
@@ -274,22 +278,23 @@ export default function DashboardPage() {
 
       const [
         allUsers,
-        allManagersList,
         todayShifts,
         upcomingShifts,
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
-        isManagerOrAdmin ? userService.getAllUsers() : [],
-        userService.getManagers(),
+        userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(today, today),
-        shiftService.getShiftsByDateRange(today, nextWeek),
+        shiftService.getShiftsByDateRange(tomorrow, nextWeek), // Exclude today from upcoming shifts
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
 
+      // Filter data based on user role (use allUsers for filtering)
+      const displayUsers = allUsers;
+
       // Filter and process data
-      const filteredUsers = allUsers.filter((u: User) => u.role !== 'ADMIN');
+      const employeesOnly = displayUsers.filter((u: User) => u.role === 'EMPLOYEE');
       const filteredLeaveRequests = isManagerOrAdmin 
         ? allLeaveRequests 
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
@@ -298,11 +303,11 @@ export default function DashboardPage() {
         : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
 
       // Build team members list with user names
-      const userMap = new Map(allUsers.map((u: User) => [u.$id, u]));
+      const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
       
       // Calculate dashboard stats
       const dashboardStats: DashboardStats = {
-        totalEmployees: filteredUsers.length,
+        totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
         todayShifts: todayShifts.length,
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
@@ -361,15 +366,11 @@ export default function DashboardPage() {
       }
 
       // Build today's schedule
-      const todayScheduleList = todayShifts.map((shift: Shift) => {
+      const todayScheduleList: DashboardShift[] = todayShifts.map((shift: Shift) => {
         const shiftUser = userMap.get(shift.userId) as User;
         return {
-          $id: shift.$id,
-          userId: shift.userId,
-          date: shift.date,
-          onCallRole: shift.onCallRole,
-          status: shift.status,
-          employeeName: shiftUser ? `${shiftUser.firstName} ${shiftUser.lastName}` : 'Unknown',
+          ...shift, // Include all Shift properties
+          _employeeName: shiftUser ? `${shiftUser.firstName} ${shiftUser.lastName}` : 'Unknown',
         };
       });
 
@@ -377,10 +378,10 @@ export default function DashboardPage() {
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleList);
-      setTeamMembers(filteredUsers);
+      setTeamMembers(employeesOnly); // Use employees only for shift assignment dropdown
       
-    } catch (error) {
-      console.error('Error in silent refresh:', error);
+    } catch {
+      
     }
   }, [userId, userRole, user]);
   
@@ -445,8 +446,8 @@ export default function DashboardPage() {
           upcomingShifts: Math.max(0, prev.upcomingShifts - 1)
         }));
       }
-    } catch (error) {
-      console.error('Error in handleShiftUpdate, falling back to silent refresh:', error);
+    } catch {
+      
       // Fallback to silent refresh if individual update fails
       await silentRefreshDashboard();
     }
@@ -494,8 +495,8 @@ export default function DashboardPage() {
           pendingLeaveRequests: Math.max(0, prev.pendingLeaveRequests - 1)
         }));
       }
-    } catch (error) {
-      console.error('Error in handleLeaveUpdate, falling back to silent refresh:', error);
+    } catch {
+      
       await silentRefreshDashboard();
     }
   }, [userRole, silentRefreshDashboard]);
@@ -544,19 +545,108 @@ export default function DashboardPage() {
           pendingSwapRequests: Math.max(0, prev.pendingSwapRequests - 1)
         }));
       }
-    } catch (error) {
-      console.error('Error in handleSwapUpdate, falling back to silent refresh:', error);
+    } catch {
+      
       await silentRefreshDashboard();
     }
   }, [userRole, silentRefreshDashboard]);
+
+  // Handle approval dialog
+  const handleApprovalClick = (approval: DashboardApprovalRequest) => {
+    setSelectedApproval(approval);
+    setIsApprovalDialogOpen(true);
+    setApprovalComment('');
+  };
+
+  // Handle approve action
+  const handleApprove = async () => {
+    if (!selectedApproval) return;
+    
+    setIsProcessingApproval(true);
+    try {
+      if (selectedApproval._type === 'leave') {
+        await leaveService.updateLeaveRequest(selectedApproval.$id!, {
+          status: 'APPROVED' as LeaveStatus,
+          ...(approvalComment && { managerComment: approvalComment })
+        });
+      } else if (selectedApproval._type === 'swap') {
+        await swapService.updateSwapRequest(selectedApproval.$id!, {
+          status: 'APPROVED' as SwapStatus,
+          ...(approvalComment && { managerComment: approvalComment })
+        });
+      }
+      
+      toast({
+        title: "Approved",
+        description: `${selectedApproval._type === 'leave' ? 'Leave request' : 'Swap request'} has been approved`,
+        duration: 3000,
+      });
+      
+      setIsApprovalDialogOpen(false);
+      setSelectedApproval(null);
+      setApprovalComment('');
+      
+      // Refresh dashboard data to show updates
+      await silentRefreshDashboard();
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to approve request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingApproval(false);
+    }
+  };
+
+  // Handle reject action
+  const handleReject = async () => {
+    if (!selectedApproval) return;
+    
+    setIsProcessingApproval(true);
+    try {
+      if (selectedApproval._type === 'leave') {
+        await leaveService.updateLeaveRequest(selectedApproval.$id!, {
+          status: 'REJECTED' as LeaveStatus,
+          ...(approvalComment && { managerComment: approvalComment })
+        });
+      } else if (selectedApproval._type === 'swap') {
+        await swapService.updateSwapRequest(selectedApproval.$id!, {
+          status: 'REJECTED' as SwapStatus,
+          ...(approvalComment && { managerComment: approvalComment })
+        });
+      }
+      
+      toast({
+        title: "Rejected",
+        description: `${selectedApproval._type === 'leave' ? 'Leave request' : 'Swap request'} has been rejected`,
+        duration: 3000,
+      });
+      
+      setIsApprovalDialogOpen(false);
+      setSelectedApproval(null);
+      setApprovalComment('');
+      
+      // Refresh dashboard data to show updates
+      await silentRefreshDashboard();
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to reject request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingApproval(false);
+    }
+  };
 
   // Real-time subscriptions for dashboard updates
   useEffect(() => {
     if (!user) return;
 
-    console.log('Dashboard: Setting up real-time subscriptions...');
-    console.log('Dashboard: DATABASE_ID:', DATABASE_ID);
-    console.log('Dashboard: COLLECTIONS:', COLLECTIONS);
+    
+    
+    
     
     const subscriptions = [
       `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
@@ -564,13 +654,13 @@ export default function DashboardPage() {
       `databases.${DATABASE_ID}.collections.${COLLECTIONS.SWAP_REQUESTS}.documents`,
     ];
     
-    console.log('Dashboard: Subscribing to:', subscriptions);
+    
     
     const unsubscribe = client.subscribe(
       subscriptions,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: Record<string, any>) => {
-        console.log('Dashboard: Real-time update received:', response);
+        
         
         const events = response.events || [];
         const payload = response.payload;
@@ -580,15 +670,10 @@ export default function DashboardPage() {
         const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
         const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
         
-        console.log('Dashboard event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
         
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log('Dashboard: Processing real-time event', {
-            eventType,
-            payload: payload,
-            events: events
-          });
           
           // Handle different collection updates with targeted state updates
           if (events.some((e: string) => e.includes('shifts'))) {
@@ -615,7 +700,7 @@ export default function DashboardPage() {
     );
 
     return () => {
-      console.log('Dashboard: Cleaning up real-time subscriptions');
+      
       unsubscribe();
     };
   }, [user, toast, handleShiftUpdate, handleLeaveUpdate, handleSwapUpdate]);
@@ -623,7 +708,7 @@ export default function DashboardPage() {
   // Refresh function for manual refresh
   const refreshDashboard = useCallback(async () => {
     try {
-      console.log('Dashboard: Manual refresh triggered');
+      
       setIsLoading(true);
       await fetchDashboardData();
       toast({
@@ -631,8 +716,8 @@ export default function DashboardPage() {
         description: "All data has been updated",
         duration: 2000,
       });
-    } catch (error) {
-      console.error('Error refreshing dashboard:', error);
+    } catch {
+      
       toast({
         title: "Refresh Failed",
         description: "Failed to refresh dashboard data. Please try again.",
@@ -684,8 +769,8 @@ export default function DashboardPage() {
 
       // Refresh data
       await fetchDashboardData();
-    } catch (error) {
-      console.error('Error creating shift:', error);
+    } catch {
+      
       toast({
         title: "Error",
         description: "Failed to create shift. Please try again.",
@@ -1015,25 +1100,25 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="hover:shadow-md transition-shadow cursor-pointer border-orange-200 bg-orange-50/50">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer border-blue-200 bg-blue-50/50">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-orange-100 rounded-lg">
-                      <TrendingUp className="h-5 w-5 text-orange-600" />
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <Calendar className="h-5 w-5 text-blue-600" />
                     </div>
                     <div>
-                      <CardTitle className="text-sm">Analytics</CardTitle>
-                      <CardDescription className="text-xs">View insights</CardDescription>
+                      <CardTitle className="text-sm">Schedule</CardTitle>
+                      <CardDescription className="text-xs">Manage shifts</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
                     onClick={() => window.location.href = '/schedule'}
-                    className="w-full bg-orange-600 hover:bg-orange-700"
+                    className="w-full bg-blue-600 hover:bg-blue-700"
                     size="sm"
                   >
-                    View Reports
+                    Open Schedule
                   </Button>
                 </CardContent>
               </Card>
@@ -1204,7 +1289,7 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
                               <span>
-                                {shift.startTime && shift.endTime ? `${shift.startTime} - ${shift.endTime}` : 'All Day'}
+                                {shift.startTime && shift.endTime ? `${shift.startTime} - ${shift.endTime}` : '7:30 AM - 3:30 PM'}
                               </span>
                             </div>
                             {shift.type && (
@@ -1272,8 +1357,12 @@ export default function DashboardPage() {
               ) : pendingApprovals.length > 0 ? (
                 <div className="space-y-3">
                   {pendingApprovals.slice(0, 5).map((approval) => (
-                    <div key={approval.$id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center space-x-3">
+                    <div 
+                      key={approval.$id} 
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                      onClick={() => handleApprovalClick(approval)}
+                    >
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <div className="flex-shrink-0">
                           {approval._type === 'leave' ? (
                             <FileText className="h-4 w-4 text-blue-500" />
@@ -1281,14 +1370,20 @@ export default function DashboardPage() {
                             <RotateCcw className="h-4 w-4 text-green-500" />
                           )}
                         </div>
-                        <div>
+                        <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm">{approval._employeeName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {approval._type === 'leave' ? 'Leave Request' : 'Shift Swap'}
+                          <p className="text-xs text-muted-foreground truncate">
+                            {approval._type === 'leave' ? (
+                              approval.startDate && approval.endDate ? 
+                                `${formatDate(approval.startDate)} to ${formatDate(approval.endDate)}` : 
+                                'Leave Request'
+                            ) : (
+                              'Shift Swap Request'
+                            )}
                           </p>
                         </div>
                       </div>
-                      <Badge variant="outline">Pending</Badge>
+                      <Badge variant="outline" className="text-xs">Pending</Badge>
                     </div>
                   ))}
                   {pendingApprovals.length > 5 && (
@@ -1336,7 +1431,7 @@ export default function DashboardPage() {
                 </div>
               ) : teamMembers.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {teamMembers.slice(0, 6).map((member) => {
+                  {teamMembers.map((member) => {
                     const userColors = getUserColor(member.$id, member.role as 'MANAGER' | 'EMPLOYEE');
                     
                     return (
@@ -1375,20 +1470,6 @@ export default function DashboardPage() {
                       </div>
                     );
                   })}
-                  {teamMembers.length > 6 && (
-                    <div 
-                      className="flex items-center justify-center p-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
-                      onClick={() => window.location.href = '/team'}
-                    >
-                      <div className="text-center">
-                        <Users className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm font-medium text-gray-600">
-                          +{teamMembers.length - 6} more members
-                        </p>
-                        <p className="text-xs text-gray-500">Click to view all</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
@@ -1503,6 +1584,108 @@ export default function DashboardPage() {
                   <Plus className="h-4 w-4 mr-2" />
                   Create Shift
                 </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approval Dialog */}
+      <Dialog open={isApprovalDialogOpen} onOpenChange={setIsApprovalDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedApproval?._type === 'leave' ? 'Leave Request' : 'Swap Request'} Details
+            </DialogTitle>
+            <DialogDescription>
+              Review and take action on this {selectedApproval?._type === 'leave' ? 'leave' : 'swap'} request
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedApproval && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Employee</Label>
+                  <p className="text-sm text-muted-foreground">{selectedApproval._employeeName}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Type</Label>
+                  <p className="text-sm text-muted-foreground capitalize">
+                    {selectedApproval._type === 'leave' ? `${selectedApproval.type} Leave` : 'Shift Swap'}
+                  </p>
+                </div>
+              </div>
+              
+              {selectedApproval._type === 'leave' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">Start Date</Label>
+                    <p className="text-sm text-muted-foreground">{formatDate(selectedApproval.startDate!)}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium">End Date</Label>
+                    <p className="text-sm text-muted-foreground">{formatDate(selectedApproval.endDate!)}</p>
+                  </div>
+                </div>
+              )}
+              
+              <div>
+                <Label className="text-sm font-medium">Reason</Label>
+                <p className="text-sm text-muted-foreground p-2 bg-gray-50 rounded border max-w-md">
+                  {selectedApproval.reason || 'No reason provided'}
+                </p>
+              </div>
+              
+              <div>
+                <Label htmlFor="approvalComment" className="text-sm font-medium">
+                  Manager Comment (Optional)
+                </Label>
+                <Textarea
+                  id="approvalComment"
+                  placeholder="Add your comments here..."
+                  value={approvalComment}
+                  onChange={(e) => setApprovalComment(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsApprovalDialogOpen(false)}
+              disabled={isProcessingApproval}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={isProcessingApproval}
+            >
+              {isProcessingApproval ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Rejecting...
+                </>
+              ) : (
+                'Reject'
+              )}
+            </Button>
+            <Button
+              onClick={handleApprove}
+              disabled={isProcessingApproval}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isProcessingApproval ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Approving...
+                </>
+              ) : (
+                'Approve'
               )}
             </Button>
           </DialogFooter>

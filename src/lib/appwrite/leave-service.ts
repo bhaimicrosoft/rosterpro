@@ -12,7 +12,7 @@ export class LeaveService {
       );
       return response.documents as unknown as LeaveRequest[];
     } catch (error) {
-      console.error('Error fetching all leave requests:', error);
+      
       throw error;
     }
   }
@@ -29,7 +29,7 @@ export class LeaveService {
       );
       return response.documents as unknown as LeaveRequest[];
     } catch (error) {
-      console.error('Error fetching leave requests by user:', error);
+      
       throw error;
     }
   }
@@ -46,7 +46,7 @@ export class LeaveService {
       );
       return response.documents as unknown as LeaveRequest[];
     } catch (error) {
-      console.error('Error fetching pending leave requests:', error);
+      
       throw error;
     }
   }
@@ -61,7 +61,7 @@ export class LeaveService {
       );
       return response as unknown as LeaveRequest;
     } catch (error) {
-      console.error('Error creating leave request:', error);
+      
       throw error;
     }
   }
@@ -76,7 +76,7 @@ export class LeaveService {
       );
       return response as unknown as LeaveRequest;
     } catch (error) {
-      console.error('Error updating leave request:', error);
+      
       throw error;
     }
   }
@@ -97,7 +97,7 @@ export class LeaveService {
         leaveId
       );
     } catch (error) {
-      console.error('Error deleting leave request:', error);
+      
       throw error;
     }
   }

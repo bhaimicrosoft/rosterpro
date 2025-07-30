@@ -120,11 +120,11 @@ const collectionsConfig = {
 
 export async function createCollections() {
   try {
-    console.log('Creating Appwrite collections...');
+    
     
     for (const [key, config] of Object.entries(collectionsConfig)) {
       try {
-        console.log(`Creating collection: ${config.name} (${config.id})`);
+        
         
         // Create the collection
         const collection = await databases.createCollection(
@@ -135,7 +135,7 @@ export async function createCollections() {
           config.documentSecurity
         );
         
-        console.log(`✓ Collection ${config.name} created successfully`);
+        
         
         // Create attributes for the collection
         for (const attr of config.attributes) {
@@ -183,22 +183,22 @@ export async function createCollections() {
                 );
                 break;
             }
-            console.log(`  ✓ Attribute ${attr.key} created`);
+            
           } catch (attrError) {
-            console.error(`  ✗ Failed to create attribute ${attr.key}:`, attrError);
+            
           }
         }
         
       } catch (collectionError) {
-        console.error(`✗ Failed to create collection ${config.name}:`, collectionError);
+        
       }
     }
     
-    console.log('Collection setup completed!');
+    
     return { success: true };
     
   } catch (error) {
-    console.error('Setup failed:', error);
+    
     return { success: false, error };
   }
 }
@@ -219,7 +219,7 @@ export async function checkCollections() {
       total: requiredCollections.length,
     };
   } catch (error) {
-    console.error('Error checking collections:', error);
+    
     return {
       exists: false,
       error,

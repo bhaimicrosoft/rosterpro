@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Sheet,
   SheetContent,
@@ -42,7 +47,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ChevronDown,
+  CheckCheck,
 } from 'lucide-react';
+import { notificationService } from '@/lib/appwrite/database';
+import { Notification } from '@/types';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -51,8 +59,70 @@ interface DashboardLayoutProps {
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const router = useRouter();
-  const [notifications] = useState(3); // TODO: Replace with real notification count
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // Notification state
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  
+  // Fetch notifications
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (user?.$id) {
+        try {
+          const userNotifications = await notificationService.getNotificationsByUser(user.$id);
+          setNotifications(userNotifications);
+        } catch {
+          // Failed to fetch notifications
+        }
+      }
+    };
+    
+    fetchNotifications();
+  }, [user?.$id]);
+
+  // Get unread notification count
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+    // Mark notification as read
+  const markAsRead = async (notificationId: string) => {
+    try {
+      await notificationService.markAsRead(notificationId);
+      setNotifications(prev => 
+        prev.map(n => n.$id === notificationId ? { ...n, read: true } : n)
+      );
+    } catch {
+      // Failed to mark notification as read
+    }
+  };
+
+  // Mark all notifications as read
+  const markAllAsRead = async () => {
+    if (user?.$id) {
+      try {
+        await notificationService.markAllAsRead(user.$id);
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      } catch {
+        // Failed to mark all notifications as read
+      }
+    }
+  };
+
+  // Format notification time
+  const formatNotificationTime = (createdAt: string) => {
+    const date = new Date(createdAt);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -200,14 +270,68 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             </Button>
 
             {/* Notifications */}
-            <Button variant="ghost" size="icon" className="relative hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20">
-              <Bell className="h-4 w-4" />
-              {notifications > 0 && (
-                <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600">
-                  {notifications}
-                </Badge>
-              )}
-            </Button>
+            <Popover open={notificationOpen} onOpenChange={setNotificationOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="relative hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20">
+                  <Bell className="h-4 w-4" />
+                  {unreadCount > 0 && (
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600">
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0" align="end">
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <h3 className="font-semibold text-sm">Notifications</h3>
+                  {notifications.length > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={markAllAsRead}
+                      className="h-6 px-2 text-xs"
+                    >
+                      <CheckCheck className="h-3 w-3 mr-1" />
+                      Mark all read
+                    </Button>
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      No notifications yet
+                    </div>
+                  ) : (
+                    notifications.map((notification) => (
+                      <div
+                        key={notification.$id}
+                        className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
+                          !notification.read ? 'bg-blue-50/50' : ''
+                        }`}
+                        onClick={() => markAsRead(notification.$id)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm leading-tight">
+                              {notification.title}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                              {notification.message}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-2">
+                              {formatNotificationTime(notification.$createdAt)}
+                            </p>
+                          </div>
+                          {!notification.read && (
+                            <div className="h-2 w-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
 
             {/* User menu */}
             <DropdownMenu>

@@ -12,7 +12,7 @@ export class SwapService {
       );
       return response.documents as unknown as SwapRequest[];
     } catch (error) {
-      console.error('Error fetching all swap requests:', error);
+      
       throw error;
     }
   }
@@ -32,7 +32,7 @@ export class SwapService {
       );
       return response.documents as unknown as SwapRequest[];
     } catch (error) {
-      console.error('Error fetching swap requests by user:', error);
+      
       throw error;
     }
   }
@@ -49,7 +49,7 @@ export class SwapService {
       );
       return response.documents as unknown as SwapRequest[];
     } catch (error) {
-      console.error('Error fetching pending swap requests:', error);
+      
       throw error;
     }
   }
@@ -64,7 +64,7 @@ export class SwapService {
       );
       return response as unknown as SwapRequest;
     } catch (error) {
-      console.error('Error creating swap request:', error);
+      
       throw error;
     }
   }
@@ -79,7 +79,7 @@ export class SwapService {
       );
       return response as unknown as SwapRequest;
     } catch (error) {
-      console.error('Error updating swap request:', error);
+      
       throw error;
     }
   }
@@ -100,7 +100,7 @@ export class SwapService {
         swapId
       );
     } catch (error) {
-      console.error('Error deleting swap request:', error);
+      
       throw error;
     }
   }

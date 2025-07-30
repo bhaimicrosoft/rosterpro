@@ -77,7 +77,7 @@ export default function TeamPage() {
         setTeamMembers(users);
       }
     } catch (error) {
-      console.error('Error fetching team data:', error);
+      
     } finally {
       setIsLoading(false);
     }
@@ -88,7 +88,7 @@ export default function TeamPage() {
     if (!user || user.role === 'EMPLOYEE') return;
 
     try {
-      console.log('Team: Silent refresh triggered');
+      
       
       const users = await userService.getAllUsers();
       setAllUsers(users);
@@ -100,7 +100,7 @@ export default function TeamPage() {
         setTeamMembers(users);
       }
     } catch (error) {
-      console.error('Error in silent refresh:', error);
+      
     }
   }, [user]);
 
@@ -112,7 +112,7 @@ export default function TeamPage() {
   useEffect(() => {
     if (!user || user.role === 'EMPLOYEE') return;
 
-    console.log('Setting up real-time subscriptions for team management...');
+    
     
     const unsubscribe = client.subscribe(
       [
@@ -120,7 +120,7 @@ export default function TeamPage() {
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        console.log('Team management real-time update received:', response);
+        
         
         const events = response.events || [];
         const payload = response.payload;
@@ -136,11 +136,11 @@ export default function TeamPage() {
           event.includes('.delete') || event.includes('documents.delete')
         );
         
-        console.log('Team event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
 
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log(`Processing ${eventType} event for instant team update...`, payload);
+          
           
           try {
             if (hasCreateEvent || hasUpdateEvent) {
@@ -162,7 +162,7 @@ export default function TeamPage() {
               // Update allUsers
               setAllUsers(prevUsers => {
                 const filteredUsers = prevUsers.filter(u => u.$id !== payload.$id);
-                console.log(`Instantly ${eventType === 'CREATE' ? 'added' : 'updated'} user:`, payload.firstName);
+                
                 return [...filteredUsers, newUser];
               });
 
@@ -185,7 +185,7 @@ export default function TeamPage() {
               // For DELETE: Remove user directly
               setAllUsers(prevUsers => {
                 const filtered = prevUsers.filter(u => u.$id !== payload.$id);
-                console.log('Instantly removed user');
+                
                 return filtered;
               });
               
@@ -204,7 +204,7 @@ export default function TeamPage() {
             });
             
           } catch (error) {
-            console.error('Error in instant team update, falling back to silent refresh:', error);
+            
             // Fallback to silent refresh only if instant update fails
             setTimeout(() => {
               silentRefreshTeamData();
@@ -215,7 +215,7 @@ export default function TeamPage() {
     );
 
     return () => {
-      console.log('Cleaning up team management real-time subscriptions...');
+      
       unsubscribe();
     };
   }, [user, toast, silentRefreshTeamData]);
@@ -261,7 +261,7 @@ export default function TeamPage() {
       });
       setIsAddDialogOpen(false);
     } catch (error) {
-      console.error('Error adding team member:', error);
+      
     }
   };
 
@@ -288,7 +288,7 @@ export default function TeamPage() {
       setIsEditDialogOpen(false);
       setSelectedUser(null);
     } catch (error) {
-      console.error('Error updating user:', error);
+      
     }
   };
 
@@ -300,7 +300,7 @@ export default function TeamPage() {
       setTeamMembers(prev => prev.filter(tm => tm.$id !== userId));
       setAllUsers(prev => prev.filter(u => u.$id !== userId));
     } catch (error) {
-      console.error('Error deleting user:', error);
+      
     }
   };
 
@@ -313,7 +313,7 @@ export default function TeamPage() {
       // For now, we'll just show the temp password
       alert(`Temporary password for ${email}: ${tempPassword}\nPlease share this securely with the user.`);
     } catch (error) {
-      console.error('Error resetting password:', error);
+      
     }
   };
 

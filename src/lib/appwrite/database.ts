@@ -31,7 +31,7 @@ export const userService = {
       );
       return castDocument<User>(user);
     } catch (error) {
-      console.error('Error creating user:', error);
+      
       throw error;
     }
   },
@@ -45,7 +45,7 @@ export const userService = {
       );
       return castDocuments<User>(response.documents);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      
       throw error;
     }
   },
@@ -59,7 +59,7 @@ export const userService = {
       );
       return castDocument<User>(user);
     } catch (error) {
-      console.error('Error fetching user:', error);
+      
       throw error;
     }
   },
@@ -76,7 +76,7 @@ export const userService = {
       );
       return castDocument<User>(user);
     } catch (error) {
-      console.error('Error updating user:', error);
+      
       throw error;
     }
   },
@@ -89,7 +89,7 @@ export const userService = {
         userId
       );
     } catch (error) {
-      console.error('Error deleting user:', error);
+      
       throw error;
     }
   },
@@ -103,7 +103,7 @@ export const userService = {
       );
       return castDocuments<User>(response.documents);
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      
       throw error;
     }
   },
@@ -125,7 +125,7 @@ export const shiftService = {
       );
       return castDocument<Shift>(shift);
     } catch (error) {
-      console.error('Error creating shift:', error);
+      
       throw error;
     }
   },
@@ -143,7 +143,7 @@ export const shiftService = {
       );
       return castDocuments<Shift>(response.documents);
     } catch (error) {
-      console.error('Error fetching shifts:', error);
+      
       throw error;
     }
   },
@@ -160,7 +160,7 @@ export const shiftService = {
       );
       return castDocuments<Shift>(response.documents);
     } catch (error) {
-      console.error('Error fetching user shifts:', error);
+      
       throw error;
     }
   },
@@ -180,7 +180,7 @@ export const shiftService = {
       );
       return castDocument<Shift>(shift);
     } catch (error) {
-      console.error('Error updating shift:', error);
+      
       throw error;
     }
   },
@@ -193,7 +193,7 @@ export const shiftService = {
         shiftId
       );
     } catch (error) {
-      console.error('Error deleting shift:', error);
+      
       throw error;
     }
   },
@@ -211,7 +211,7 @@ export const leaveService = {
       );
       return castDocument<LeaveRequest>(leave);
     } catch (error) {
-      console.error('Error creating leave request:', error);
+      
       throw error;
     }
   },
@@ -228,7 +228,7 @@ export const leaveService = {
       );
       return castDocuments<LeaveRequest>(response.documents);
     } catch (error) {
-      console.error('Error fetching leave requests:', error);
+      
       throw error;
     }
   },
@@ -242,7 +242,7 @@ export const leaveService = {
       );
       return castDocuments<LeaveRequest>(response.documents);
     } catch (error) {
-      console.error('Error fetching all leave requests:', error);
+      
       throw error;
     }
   },
@@ -259,7 +259,7 @@ export const leaveService = {
       );
       return castDocument<LeaveRequest>(leave);
     } catch (error) {
-      console.error('Error updating leave request:', error);
+      
       throw error;
     }
   },
@@ -280,7 +280,7 @@ export const swapService = {
       );
       return castDocument<SwapRequest>(swap);
     } catch (error) {
-      console.error('Error creating swap request:', error);
+      
       throw error;
     }
   },
@@ -300,7 +300,7 @@ export const swapService = {
       );
       return castDocuments<SwapRequest>(response.documents);
     } catch (error) {
-      console.error('Error fetching swap requests:', error);
+      
       throw error;
     }
   },
@@ -314,7 +314,7 @@ export const swapService = {
       );
       return castDocuments<SwapRequest>(response.documents);
     } catch (error) {
-      console.error('Error fetching all swap requests:', error);
+      
       throw error;
     }
   },
@@ -334,7 +334,7 @@ export const swapService = {
       );
       return castDocument<SwapRequest>(swap);
     } catch (error) {
-      console.error('Error updating swap request:', error);
+      
       throw error;
     }
   },
@@ -352,7 +352,7 @@ export const notificationService = {
       );
       return castDocument<Notification>(notification);
     } catch (error) {
-      console.error('Error creating notification:', error);
+      
       throw error;
     }
   },
@@ -370,7 +370,7 @@ export const notificationService = {
       );
       return castDocuments<Notification>(response.documents);
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      
       throw error;
     }
   },
@@ -385,7 +385,7 @@ export const notificationService = {
       );
       return castDocument<Notification>(notification);
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      
       throw error;
     }
   },
@@ -401,7 +401,7 @@ export const notificationService = {
       
       await Promise.all(promises);
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
+      
       throw error;
     }
   },

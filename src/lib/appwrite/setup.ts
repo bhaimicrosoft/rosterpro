@@ -86,15 +86,15 @@ const DEFAULT_USERS = [
 
 export const setupDatabase = async () => {
   try {
-    console.log('Setting up RosterPro database...');
+    
 
     // Create database collections (this should be done in Appwrite console)
-    console.log('Please create the following collections in your Appwrite console:');
-    console.log('1. Users collection with ID:', COLLECTIONS.USERS);
-    console.log('2. Shifts collection with ID:', COLLECTIONS.SHIFTS);
-    console.log('3. Leave Requests collection with ID:', COLLECTIONS.LEAVE_REQUESTS);
-    console.log('4. Swap Requests collection with ID:', COLLECTIONS.SWAP_REQUESTS);
-    console.log('5. Notifications collection with ID:', COLLECTIONS.NOTIFICATIONS);
+    
+    
+    
+    
+    
+    
 
     return {
       success: true,
@@ -102,7 +102,7 @@ export const setupDatabase = async () => {
       defaultUsers: DEFAULT_USERS,
     };
   } catch (error) {
-    console.error('Database setup error:', error);
+    
     return {
       success: false,
       message: 'Database setup failed',
@@ -113,7 +113,7 @@ export const setupDatabase = async () => {
 
 // Helper function to create auth users (this needs to be run server-side)
 export const createAuthUsers = async () => {
-  console.log('Creating auth users...');
+  
   
   const defaultPassword = 'P@$$w0rd1!';
   const results = [];
