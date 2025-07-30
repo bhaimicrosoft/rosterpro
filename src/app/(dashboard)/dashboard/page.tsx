@@ -106,6 +106,10 @@ export default function DashboardPage() {
   const userId = user?.$id;
   const userRole = user?.role;
   
+  // Calculate manager/admin status early to avoid initialization errors
+  const normalizedUserRole = userRole?.toUpperCase();
+  const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
+  
   // Helper function to format dates
   const formatDate = (dateString: string) => {
     try {
@@ -134,8 +138,7 @@ export default function DashboardPage() {
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       // Handle UPPERCASE roles from Appwrite
-      const normalizedUserRole = userRole?.toUpperCase();
-      const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
+      // Use the component-level isManagerOrAdmin variable
 
       const [
         allUsers,
@@ -245,7 +248,7 @@ export default function DashboardPage() {
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleWithNames);
-      setTeamMembers(employeesOnly); // Use employees only for shift assignment dropdown
+      setTeamMembers(employeesOnly); // Use only employees for drag-and-drop (no managers/admins for on-call)
 
       
     } catch (error) {
@@ -273,7 +276,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId, userRole, user]);
+  }, [userId, userRole, user, isManagerOrAdmin]);
 
   // Silent refresh without loading spinner (for real-time fallback)
   const silentRefreshDashboard = useCallback(async () => {
@@ -288,8 +291,7 @@ export default function DashboardPage() {
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       // Handle UPPERCASE roles from Appwrite
-      const normalizedUserRole = userRole?.toUpperCase();
-      const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
+      // Use the component-level isManagerOrAdmin variable
 
       const [
         allUsers,
@@ -392,12 +394,12 @@ export default function DashboardPage() {
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleList);
-      setTeamMembers(employeesOnly); // Use employees only for shift assignment dropdown
+      setTeamMembers(employeesOnly); // Use only employees for drag-and-drop (no managers/admins for on-call)
       
     } catch {
       
     }
-  }, [userId, userRole, user]);
+  }, [userId, userRole, user, isManagerOrAdmin]);
   
   // Initial data fetch
   useEffect(() => {
@@ -563,6 +565,97 @@ export default function DashboardPage() {
     }
   }, [userRole, silentRefreshDashboard]);
 
+  const handleTeamMemberUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
+    try {
+      console.log('🔄 Team member update:', { eventType, payload }); // Debug logging
+      
+      const memberId = payload.$id as string;
+      
+      if (eventType === 'CREATE') {
+        // Add new team member - ONLY add employees for drag-and-drop (no managers/admins for on-call)
+        const newMember = payload as unknown as User;
+        if (newMember.role === 'EMPLOYEE') {
+          setTeamMembers(prev => {
+            const exists = prev.find(member => member.$id === newMember.$id);
+            if (exists) return prev; // Prevent duplicates
+            return [...prev, newMember];
+          });
+        }
+        
+        // Update stats consistently with initial load logic (only employees count for stats)
+        if (isManagerOrAdmin && newMember.role === 'EMPLOYEE') {
+          setStats(prev => {
+            console.log('📊 Incrementing employee count:', prev.totalEmployees, '→', prev.totalEmployees + 1);
+            return { ...prev, totalEmployees: prev.totalEmployees + 1 };
+          });
+        }
+      } else if (eventType === 'UPDATE') {
+        // Update existing team member
+        const updatedMember = payload as unknown as User;
+        
+        // Get the old member data and update atomically
+        setTeamMembers(prev => {
+          const oldMember = prev.find(member => member.$id === updatedMember.$id);
+          
+          // Handle role changes that affect employee count (only if old member exists)
+          if (isManagerOrAdmin && oldMember) {
+            const wasEmployee = oldMember.role === 'EMPLOYEE';
+            const isEmployee = updatedMember.role === 'EMPLOYEE';
+            
+            if (wasEmployee && !isEmployee) {
+              // Changed from employee to manager/admin
+              setStats(prevStats => {
+                console.log('📊 Role change: Employee → Manager, decrementing count:', prevStats.totalEmployees, '→', Math.max(0, prevStats.totalEmployees - 1));
+                return { ...prevStats, totalEmployees: Math.max(0, prevStats.totalEmployees - 1) };
+              });
+            } else if (!wasEmployee && isEmployee) {
+              // Changed from manager/admin to employee
+              setStats(prevStats => {
+                console.log('📊 Role change: Manager → Employee, incrementing count:', prevStats.totalEmployees, '→', prevStats.totalEmployees + 1);
+                return { ...prevStats, totalEmployees: prevStats.totalEmployees + 1 };
+              });
+            }
+          }
+          
+          // Return updated team members list
+          return prev.map(member => 
+            member.$id === updatedMember.$id ? updatedMember : member
+          );
+        });
+      } else if (eventType === 'DELETE') {
+        // Handle deletion with proper deduplication and single atomic update
+        const memberToDelete = teamMembers.find(member => member.$id === memberId);
+        
+        // Only proceed if the member actually exists in our current state
+        if (!memberToDelete) {
+          console.log('⚠️ Member not found in current state, skipping deletion:', memberId);
+          return; // Exit early to prevent any state updates
+        }
+        
+        console.log('📊 Found member to delete:', memberToDelete.firstName, memberToDelete.lastName, 'Role:', memberToDelete.role);
+        
+        // Single atomic state update for both team members and stats
+        setTeamMembers(prev => {
+          const filteredMembers = prev.filter(member => member.$id !== memberId);
+          
+          // Update stats only once within this same state update if the deleted member was an employee
+          if (isManagerOrAdmin && memberToDelete.role === 'EMPLOYEE') {
+            setStats(prevStats => {
+              const newCount = Math.max(0, prevStats.totalEmployees - 1);
+              console.log('📊 Deleting employee, decrementing count:', prevStats.totalEmployees, '→', newCount);
+              return { ...prevStats, totalEmployees: newCount };
+            });
+          }
+          
+          return filteredMembers;
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error handling team member update:', error);
+      await silentRefreshDashboard();
+    }
+  }, [isManagerOrAdmin, silentRefreshDashboard, teamMembers]);
+
   // Handle approval dialog
   const handleApprovalClick = (approval: DashboardApprovalRequest) => {
     setSelectedApproval(approval);
@@ -656,36 +749,49 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
 
-    
-    
-    
+    // Use a Set to track processed events to prevent duplicates
+    const processedEvents = new Set<string>();
     
     const subscriptions = [
       `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
       `databases.${DATABASE_ID}.collections.${COLLECTIONS.LEAVES}.documents`,
       `databases.${DATABASE_ID}.collections.${COLLECTIONS.SWAP_REQUESTS}.documents`,
+      `databases.${DATABASE_ID}.collections.${COLLECTIONS.USERS}.documents`,
     ];
-    
-    
     
     const unsubscribe = client.subscribe(
       subscriptions,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: Record<string, any>) => {
-        
+        console.log('🔔 Real-time event received:', { events: response.events, payload: response.payload }); // Debug logging
         
         const events = response.events || [];
         const payload = response.payload;
         
-        // Check for specific event types
+        // Create a unique identifier for this event
+        const eventKey = `${payload?.$id}-${events[0]}-${payload?.$updatedAt}`;
+        
+        // Skip if we've already processed this exact event
+        if (processedEvents.has(eventKey)) {
+          console.log('🚫 Skipping duplicate event:', eventKey);
+          return;
+        }
+        
+        // Add to processed events and cleanup old entries (keep only last 100)
+        processedEvents.add(eventKey);
+        if (processedEvents.size > 100) {
+          const oldEvents = Array.from(processedEvents).slice(0, 50);
+          oldEvents.forEach(event => processedEvents.delete(event));
+        }
+        
+        // Check for specific event types - handle ALL events, not just create/update/delete
         const hasCreateEvent = events.some((event: string) => event.includes('.create'));
         const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
         const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
         
-        
-        
-        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
-          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+        // Process any event that has occurred - this ensures real-time sync for ALL user events
+        if (events.length > 0 && payload) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : hasDeleteEvent ? 'DELETE' : 'UNKNOWN';
           
           // Handle different collection updates with targeted state updates
           if (events.some((e: string) => e.includes('shifts'))) {
@@ -694,19 +800,24 @@ export default function DashboardPage() {
             await handleLeaveUpdate(payload, eventType);
           } else if (events.some((e: string) => e.includes('swap'))) {
             await handleSwapUpdate(payload, eventType);
+          } else if (events.some((e: string) => e.includes('users'))) {
+            await handleTeamMemberUpdate(payload, eventType);
           }
           
           // Show toast notification with more specific message
-          const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
-          const collection = events[0]?.includes('shifts') ? 'Shift' : 
-                           events[0]?.includes('leaves') ? 'Leave request' : 
-                           events[0]?.includes('swap') ? 'Swap request' : 'Data';
-          
-          toast({
-            title: "Dashboard Updated",
-            description: `${collection} ${eventTypeText}`,
-            duration: 2000,
-          });
+          if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+            const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+            const collection = events[0]?.includes('shifts') ? 'Shift' : 
+                             events[0]?.includes('leaves') ? 'Leave request' : 
+                             events[0]?.includes('swap') ? 'Swap request' : 
+                             events[0]?.includes('users') ? 'Team member' : 'Data';
+            
+            toast({
+              title: "Dashboard Updated",
+              description: `${collection} ${eventTypeText}`,
+              duration: 2000,
+            });
+          }
         }
       }
     );
@@ -715,7 +826,7 @@ export default function DashboardPage() {
       
       unsubscribe();
     };
-  }, [user, toast, handleShiftUpdate, handleLeaveUpdate, handleSwapUpdate]);
+  }, [user, toast, handleShiftUpdate, handleLeaveUpdate, handleSwapUpdate, handleTeamMemberUpdate]);
 
   // Refresh function for manual refresh
   const refreshDashboard = useCallback(async () => {
@@ -740,6 +851,11 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   }, [fetchDashboardData, toast]);
+
+  // Handle data refresh for WeeklySchedule component
+  const handleDataRefresh = useCallback(async () => {
+    await silentRefreshDashboard();
+  }, [silentRefreshDashboard]);
 
   // Handle schedule shift form submission
   const handleScheduleShift = useCallback(async () => {
@@ -964,9 +1080,6 @@ export default function DashboardPage() {
       </DashboardLayout>
     );
   }
-
-  const normalizedUserRole = userRole?.toUpperCase();
-  const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
 
   if (hasCollectionError) {
     return (
@@ -1324,6 +1437,8 @@ export default function DashboardPage() {
           <CardContent>
             <WeeklySchedule 
               user={user} 
+              teamMembers={teamMembers}
+              onScheduleUpdate={handleDataRefresh}
             />
           </CardContent>
         </Card>
