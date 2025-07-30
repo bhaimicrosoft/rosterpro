@@ -83,7 +83,6 @@ export interface Notification {
 // Dashboard stats types
 export interface DashboardStats {
   totalEmployees: number;
-  todayShifts: number;
   pendingLeaveRequests: number;
   pendingSwapRequests: number;
   upcomingShifts: number;

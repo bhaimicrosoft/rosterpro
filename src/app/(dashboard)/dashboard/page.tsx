@@ -41,6 +41,9 @@ import {
   CalendarDays,
   UserCheck,
   Plus,
+  Edit2,
+  Trash2,
+  UserPlus,
 } from 'lucide-react';
 import WeeklySchedule from '@/components/dashboard/WeeklySchedule';
 
@@ -55,6 +58,11 @@ export default function DashboardPage() {
   // Dialog states
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isSchedulingShift, setIsSchedulingShift] = useState(false);
+  const [isTeamMemberDialogOpen, setIsTeamMemberDialogOpen] = useState(false);
+  const [isEditingMember, setIsEditingMember] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [memberToDelete, setMemberToDelete] = useState<string | null>(null);
   
   // Form state for schedule dialog
   const [scheduleForm, setScheduleForm] = useState({
@@ -66,10 +74,21 @@ export default function DashboardPage() {
     notes: '',
   });
   
+  // Form state for team member dialog
+  const [memberForm, setMemberForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    username: '',
+    role: 'EMPLOYEE' as 'EMPLOYEE' | 'MANAGER',
+    paidLeaves: 25,
+    sickLeaves: 12,
+    compOffs: 0,
+  });
+  
   // Dashboard data state
   const [stats, setStats] = useState<DashboardStats>({
     totalEmployees: 0,
-    todayShifts: 0,
     pendingLeaveRequests: 0,
     pendingSwapRequests: 0,
     upcomingShifts: 0,
@@ -126,7 +145,7 @@ export default function DashboardPage() {
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
-        shiftService.getShiftsByDateRange(today, today),
+        shiftService.getShiftsByDateRange(today, today), // Keep today shifts for schedule display
         shiftService.getShiftsByDateRange(tomorrow, nextWeek), // Exclude today from upcoming shifts
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
@@ -150,7 +169,6 @@ export default function DashboardPage() {
       // Calculate dashboard stats - fix employee count to only include employees
       const dashboardStats: DashboardStats = {
         totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
-        todayShifts: todayShifts.length,
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
         upcomingShifts: upcomingShifts.length,
@@ -223,8 +241,6 @@ export default function DashboardPage() {
         };
       });
 
-      
-
       // Set all the state
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
@@ -247,7 +263,6 @@ export default function DashboardPage() {
       // Set default empty state on error
       setStats({
         totalEmployees: 0,
-        todayShifts: 0,
         pendingLeaveRequests: 0,
         pendingSwapRequests: 0,
         upcomingShifts: 0,
@@ -308,7 +323,6 @@ export default function DashboardPage() {
       // Calculate dashboard stats
       const dashboardStats: DashboardStats = {
         totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
-        todayShifts: todayShifts.length,
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
         upcomingShifts: upcomingShifts.length,
@@ -429,7 +443,6 @@ export default function DashboardPage() {
         // Update stats
         setStats(prev => ({
           ...prev,
-          todayShifts: shiftDate === today ? prev.todayShifts + (eventType === 'CREATE' ? 1 : 0) : prev.todayShifts,
           upcomingShifts: prev.upcomingShifts + (eventType === 'CREATE' ? 1 : 0)
         }));
         
@@ -442,7 +455,6 @@ export default function DashboardPage() {
         // Update stats
         setStats(prev => ({
           ...prev,
-          todayShifts: shiftDate === today ? Math.max(0, prev.todayShifts - 1) : prev.todayShifts,
           upcomingShifts: Math.max(0, prev.upcomingShifts - 1)
         }));
       }
@@ -781,6 +793,96 @@ export default function DashboardPage() {
     }
   }, [scheduleForm, toast, fetchDashboardData]);
 
+  // Team member handlers
+  const handleAddMember = useCallback(() => {
+    setIsEditingMember(false);
+    setEditingMemberId(null);
+    setMemberForm({
+      firstName: '',
+      lastName: '',
+      email: '',
+      username: '',
+      role: 'EMPLOYEE',
+      paidLeaves: 25,
+      sickLeaves: 12,
+      compOffs: 0,
+    });
+    setIsTeamMemberDialogOpen(true);
+  }, []);
+
+  const handleEditMember = useCallback((member: User) => {
+    setIsEditingMember(true);
+    setEditingMemberId(member.$id);
+    setMemberForm({
+      firstName: member.firstName,
+      lastName: member.lastName,
+      email: member.email,
+      username: member.username,
+      role: member.role as 'EMPLOYEE' | 'MANAGER',
+      paidLeaves: member.paidLeaves || 25,
+      sickLeaves: member.sickLeaves || 12,
+      compOffs: member.compOffs || 0,
+    });
+    setIsTeamMemberDialogOpen(true);
+  }, []);
+
+  const handleDeleteMember = useCallback((memberId: string) => {
+    setMemberToDelete(memberId);
+    setIsDeleteDialogOpen(true);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!memberToDelete) return;
+
+    try {
+      await userService.deleteUser(memberToDelete);
+      setTeamMembers(prev => prev.filter(m => m.$id !== memberToDelete));
+      toast({
+        title: "Success",
+        description: "Team member deleted successfully.",
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to delete team member. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleteDialogOpen(false);
+      setMemberToDelete(null);
+    }
+  }, [memberToDelete, toast]);
+
+  const handleSaveMember = useCallback(async () => {
+    try {
+      if (isEditingMember && editingMemberId) {
+        // Update existing member
+        const updatedUser = await userService.updateUser(editingMemberId, memberForm);
+        setTeamMembers(prev => prev.map(m => m.$id === editingMemberId ? updatedUser : m));
+        toast({
+          title: "Success",
+          description: "Team member updated successfully.",
+        });
+      } else {
+        // Create new member
+        const newUser = await userService.createUser(memberForm);
+        setTeamMembers(prev => [...prev, newUser]);
+        toast({
+          title: "Success",
+          description: "Team member added successfully.",
+        });
+      }
+    } catch {
+      toast({
+        title: "Error",
+        description: `Failed to ${isEditingMember ? 'update' : 'add'} team member. Please try again.`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsTeamMemberDialogOpen(false);
+    }
+  }, [isEditingMember, editingMemberId, memberForm, toast]);
+
   // Helper function to convert Tailwind bg classes to hex colors
   const getHexColor = useCallback((bgClass: string): string => {
     const colorMap: Record<string, string> = {
@@ -951,7 +1053,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-md transition-all duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-blue-800">
@@ -966,19 +1068,6 @@ export default function DashboardPage() {
               <p className="text-xs text-blue-600">
                 {isManagerOrAdmin ? 'Active team members' : 'This week'}
               </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-md transition-all duration-200">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-green-800">Today&apos;s Shifts</CardTitle>
-              <div className="p-2 bg-green-200 rounded-lg">
-                <Calendar className="h-4 w-4 text-green-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-900">{stats.todayShifts}</div>
-              <p className="text-xs text-green-600">Active today</p>
             </CardContent>
           </Card>
           
@@ -1408,13 +1497,24 @@ export default function DashboardPage() {
         {isManagerOrAdmin && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UserCheck className="h-5 w-5" />
-                Team Members
-              </CardTitle>
-              <CardDescription>
-                {teamMembers.length} active team member{teamMembers.length !== 1 ? 's' : ''}
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <UserCheck className="h-5 w-5" />
+                    Team Members
+                  </CardTitle>
+                  <CardDescription>
+                    {teamMembers.length} active team member{teamMembers.length !== 1 ? 's' : ''}
+                  </CardDescription>
+                </div>
+                <Button
+                  onClick={handleAddMember}
+                  className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add Member
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -1437,7 +1537,7 @@ export default function DashboardPage() {
                     return (
                       <div 
                         key={member.$id} 
-                        className={`flex items-center space-x-4 p-4 rounded-lg border ${userColors.border} ${userColors.light} hover:shadow-md transition-all duration-200 cursor-pointer`}
+                        className={`group relative flex items-center space-x-4 p-4 rounded-lg border ${userColors.border} ${userColors.light} hover:shadow-lg transition-all duration-200 overflow-hidden`}
                       >
                         <Avatar className="h-12 w-12 ring-2 ring-white shadow-md" style={{ backgroundColor: getHexColor(userColors.bg) }}>
                           <AvatarFallback className="text-white font-semibold text-sm bg-transparent">
@@ -1467,6 +1567,26 @@ export default function DashboardPage() {
                             </div>
                           </div>
                         </div>
+                        
+                        {/* Hover Actions */}
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0 bg-white/90 hover:bg-blue-50 border-blue-200 hover:border-blue-300"
+                            onClick={() => handleEditMember(member)}
+                          >
+                            <Edit2 className="h-3 w-3 text-blue-600" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0 bg-white/90 hover:bg-red-50 border-red-200 hover:border-red-300"
+                            onClick={() => handleDeleteMember(member.$id)}
+                          >
+                            <Trash2 className="h-3 w-3 text-red-600" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1475,6 +1595,13 @@ export default function DashboardPage() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No team members found</p>
+                  <Button
+                    onClick={handleAddMember}
+                    className="mt-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white"
+                  >
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Add First Member
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -1687,6 +1814,152 @@ export default function DashboardPage() {
               ) : (
                 'Approve'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Team Member Add/Edit Dialog */}
+      <Dialog open={isTeamMemberDialogOpen} onOpenChange={setIsTeamMemberDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {isEditingMember ? 'Edit Team Member' : 'Add New Team Member'}
+            </DialogTitle>
+            <DialogDescription>
+              {isEditingMember ? 'Update team member information' : 'Add a new team member to your organization'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="firstName">First Name *</Label>
+                <Input
+                  id="firstName"
+                  value={memberForm.firstName}
+                  onChange={(e) => setMemberForm(prev => ({ ...prev, firstName: e.target.value }))}
+                  placeholder="John"
+                />
+              </div>
+              <div>
+                <Label htmlFor="lastName">Last Name *</Label>
+                <Input
+                  id="lastName"
+                  value={memberForm.lastName}
+                  onChange={(e) => setMemberForm(prev => ({ ...prev, lastName: e.target.value }))}
+                  placeholder="Doe"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="email">Email *</Label>
+              <Input
+                id="email"
+                type="email"
+                value={memberForm.email}
+                onChange={(e) => setMemberForm(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="john.doe@company.com"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="username">Username *</Label>
+              <Input
+                id="username"
+                value={memberForm.username}
+                onChange={(e) => setMemberForm(prev => ({ ...prev, username: e.target.value }))}
+                placeholder="johndoe"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="role">Role *</Label>
+              <Select
+                value={memberForm.role}
+                onValueChange={(value: 'EMPLOYEE' | 'MANAGER') => setMemberForm(prev => ({ ...prev, role: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EMPLOYEE">Employee</SelectItem>
+                  <SelectItem value="MANAGER">Manager</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="paidLeaves">Paid Leaves</Label>
+                <Input
+                  id="paidLeaves"
+                  type="number"
+                  value={memberForm.paidLeaves}
+                  onChange={(e) => setMemberForm(prev => ({ ...prev, paidLeaves: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="sickLeaves">Sick Leaves</Label>
+                <Input
+                  id="sickLeaves"
+                  type="number"
+                  value={memberForm.sickLeaves}
+                  onChange={(e) => setMemberForm(prev => ({ ...prev, sickLeaves: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="compOffs">Comp Offs</Label>
+                <Input
+                  id="compOffs"
+                  type="number"
+                  value={memberForm.compOffs}
+                  onChange={(e) => setMemberForm(prev => ({ ...prev, compOffs: parseInt(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsTeamMemberDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveMember}
+              className="bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
+            >
+              {isEditingMember ? 'Update Member' : 'Add Member'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Delete Team Member</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this team member? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+            >
+              Delete Member
             </Button>
           </DialogFooter>
         </DialogContent>
