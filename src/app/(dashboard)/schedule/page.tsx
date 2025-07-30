@@ -239,16 +239,26 @@ export default function SchedulePage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
         console.log('Schedule management real-time update received:', response);
+        console.log('Schedule management: Processing response...');
         
         const events = response.events || [];
         const payload = response.payload;
         
-        // Check for specific event types
-        const hasCreateEvent = events.some((event: string) => event.includes('.create'));
-        const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
-        const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
+        console.log('Schedule management: Events extracted:', events);
+        console.log('Schedule management: Payload extracted:', payload);
         
-        console.log('Schedule event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        // Check for specific event types with more robust pattern matching
+        const hasCreateEvent = events.some((event: string) => 
+          event.includes('.create') || event.includes('documents.create')
+        );
+        const hasUpdateEvent = events.some((event: string) => 
+          event.includes('.update') || event.includes('documents.update')
+        );
+        const hasDeleteEvent = events.some((event: string) => 
+          event.includes('.delete') || event.includes('documents.delete')
+        );
+        
+        console.log('Event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
         
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';

@@ -114,6 +114,53 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
     }
   }, [user, getWeekDates]);
 
+  // Silent refetch without loading spinner (for real-time fallback)
+  const silentRefetchWeeklyData = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      console.log('WeeklySchedule: Silent refetch triggered');
+      
+      // Get this week's date range
+      const weekDates = getWeekDates();
+      const startDate = weekDates[0].date;
+      const endDate = weekDates[6].date;
+      
+      // Fetch shifts and users
+      const [shiftsData, usersData] = await Promise.all([
+        shiftService.getShiftsByDateRange(startDate, endDate),
+        userService.getAllUsers()
+      ]);
+      
+      // Create user map for quick lookup
+      const userMap = new Map();
+      usersData.forEach((u: User | AuthUser) => {
+        userMap.set(u.$id, u);
+      });
+      
+      // Map shifts to week days
+      const scheduleData = weekDates.map(day => {
+        const dayShifts = shiftsData.filter(shift => 
+          shift.date.split('T')[0] === day.date
+        );
+        
+        const primaryShift = dayShifts.find(s => s.onCallRole === 'PRIMARY');
+        const backupShift = dayShifts.find(s => s.onCallRole === 'BACKUP');
+        
+        return {
+          ...day,
+          primary: primaryShift ? userMap.get(primaryShift.userId) : undefined,
+          backup: backupShift ? userMap.get(backupShift.userId) : undefined,
+        };
+      });
+      
+      setWeekSchedule(scheduleData);
+      console.log('WeeklySchedule: Silent refetch completed');
+    } catch (error) {
+      console.error('WeeklySchedule: Error in silent refetch:', error);
+    }
+  }, [user, getWeekDates]);
+
   useEffect(() => {
     fetchWeeklyData();
   }, [fetchWeeklyData]);
@@ -135,10 +182,16 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
         const events = response.events || [];
         const payload = response.payload;
         
-        // Check for specific event types
-        const hasCreateEvent = events.some((event: string) => event.includes('.create'));
-        const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
-        const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
+        // Check for specific event types with more robust pattern matching
+        const hasCreateEvent = events.some((event: string) => 
+          event.includes('.create') || event.includes('documents.create')
+        );
+        const hasUpdateEvent = events.some((event: string) => 
+          event.includes('.update') || event.includes('documents.update')
+        );
+        const hasDeleteEvent = events.some((event: string) => 
+          event.includes('.delete') || event.includes('documents.delete')
+        );
         
         console.log('Event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
         
@@ -180,10 +233,10 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                   return newSchedule;
                 });
               } catch (error) {
-                console.error('Error getting user for instant update, falling back to refetch:', error);
-                // Fallback to full refetch only if user fetch fails
+                console.error('Error getting user for instant update, falling back to silent refetch:', error);
+                // Fallback to silent refetch only if user fetch fails (no loading spinner)
                 setTimeout(() => {
-                  fetchWeeklyData();
+                  silentRefetchWeeklyData();
                 }, 100);
               }
             } else if (hasDeleteEvent) {
@@ -219,7 +272,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
       console.log('Cleaning up weekly schedule real-time subscription...');
       unsubscribe();
     };
-  }, [user, getWeekDates, fetchWeeklyData]);
+  }, [user, getWeekDates, fetchWeeklyData, silentRefetchWeeklyData]);
 
   const getUserInitials = (user: User | AuthUser) => {
     return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();

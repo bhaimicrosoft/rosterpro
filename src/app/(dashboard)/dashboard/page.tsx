@@ -1023,7 +1023,6 @@ export default function DashboardPage() {
           <CardContent>
             <WeeklySchedule 
               user={user} 
-              key={`weekly-schedule-${stats.todayShifts}-${stats.upcomingShifts}`}
             />
           </CardContent>
         </Card>
