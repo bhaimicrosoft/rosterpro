@@ -22,6 +22,19 @@ import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
 import DraggableEmployeeBadge from './DraggableEmployeeBadge';
 import DroppableSlot from './DroppableSlot';
 
+// Utility function to ensure unique team members and prevent duplicate React keys
+const deduplicateTeamMembers = (members: User[]): User[] => {
+  const seen = new Set<string>();
+  return members.filter(member => {
+    if (seen.has(member.$id)) {
+      console.log('⚠️ WeeklySchedule: Removing duplicate team member:', member.$id, member.firstName, member.lastName);
+      return false;
+    }
+    seen.add(member.$id);
+    return true;
+  });
+};
+
 interface WeeklyScheduleDay {
   date: string;
   dayName: string;
@@ -76,20 +89,29 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       if (source.droppableId !== 'team-members') {
         // Extract date and role from source droppableId (format: YYYY-MM-DD-role)
         const sourceIdParts = source.droppableId.split('-');
-        const sourceRole = sourceIdParts[sourceIdParts.length - 1]; // Last part is the role
-        const sourceDate = sourceIdParts.slice(0, -1).join('-'); // Everything before the last part is the date
         
-        console.log('📅 Source shift details:', { sourceDate, sourceRole });
-        
-        if (sourceDate && sourceRole) {
-          // Set up pending delete operation and show dialog
-          setPendingOperation({
-            type: 'delete',
-            userId,
-            date: sourceDate,
-            role: sourceRole
-          });
-          setIsDeleteDialogOpen(true);
+        // Ensure we have at least 4 parts (year, month, day, role) and it's not team-members
+        if (sourceIdParts.length >= 4) {
+          const sourceRole = sourceIdParts[sourceIdParts.length - 1]; // Last part is the role
+          const sourceDate = sourceIdParts.slice(0, -1).join('-'); // Everything before the last part is the date
+          
+          console.log('📅 Source shift details:', { sourceDate, sourceRole, sourceIdParts });
+          
+          // Validate date format before proceeding
+          if (sourceDate && sourceRole && /^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) {
+            // Set up pending delete operation and show dialog
+            setPendingOperation({
+              type: 'delete',
+              userId,
+              date: sourceDate,
+              role: sourceRole
+            });
+            setIsDeleteDialogOpen(true);
+          } else {
+            console.log('⚠️ Invalid date format or missing data:', { sourceDate, sourceRole, sourceIdParts });
+          }
+        } else {
+          console.log('⚠️ Invalid droppableId format:', source.droppableId);
         }
       }
       return; // Always return when destination is null
@@ -522,7 +544,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
                     {...provided.droppableProps}
                     className="flex flex-wrap gap-2"
                   >
-                    {teamMembers.map((member, index) => (
+                    {deduplicateTeamMembers(teamMembers).map((member, index) => (
                       <DraggableEmployeeBadge
                         key={member.$id}
                         user={member}

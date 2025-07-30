@@ -108,14 +108,6 @@ export default function LoginPage() {
                 {isLoading ? 'Signing in...' : 'Sign in'}
               </Button>
             </form>
-
-            <div className="mt-8 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg border border-blue-200/50 dark:border-blue-700/50">
-              <h4 className="text-sm font-medium mb-2 text-blue-800 dark:text-blue-200">Default Login Credentials:</h4>
-              <div className="text-xs space-y-1 text-blue-600 dark:text-blue-300">
-                <p><strong>Manager:</strong> jegupta / P@$$w0rd1!</p>
-                <p><strong>Employee:</strong> imukherjee / P@$$w0rd1!</p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>

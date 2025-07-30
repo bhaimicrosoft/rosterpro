@@ -47,6 +47,19 @@ import {
 } from 'lucide-react';
 import WeeklySchedule from '@/components/dashboard/WeeklySchedule';
 
+// Utility function to ensure unique team members and prevent duplicate React keys
+const deduplicateTeamMembers = (members: User[]): User[] => {
+  const seen = new Set<string>();
+  return members.filter(member => {
+    if (seen.has(member.$id)) {
+      console.log('⚠️ Removing duplicate team member:', member.$id, member.firstName, member.lastName);
+      return false;
+    }
+    seen.add(member.$id);
+    return true;
+  });
+};
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -135,22 +148,23 @@ export default function DashboardPage() {
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days from today = 7 days from tomorrow
 
       // Create proper date ranges for querying (add time components)
       const todayStart = `${today}T00:00:00.000Z`;
       const todayEnd = `${today}T23:59:59.999Z`;
       const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
-      const nextWeekEnd = `${nextWeek}T23:59:59.999Z`;
+      const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
 
       console.log('📅 Dashboard data fetch - Date calculations:', { 
         today, 
-        tomorrow, 
-        nextWeek,
+        tomorrow,
+        sevenDaysFromTomorrow,
         todayStart,
         todayEnd,
         tomorrowStart,
-        nextWeekEnd,
+        sevenDaysEnd,
+        note: 'Upcoming shifts: 7 days from tomorrow, excluding today from results',
         currentDate: new Date().toString(),
         currentUTC: new Date().toISOString()
       });
@@ -161,16 +175,22 @@ export default function DashboardPage() {
       const [
         allUsers,
         todayShifts,
-        upcomingShifts,
+        upcomingShiftsRaw,
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
-        shiftService.getShiftsByDateRange(tomorrowStart, nextWeekEnd), // Exclude today from upcoming shifts
+        shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd), // Next 7 days from tomorrow
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
+
+      // Filter out any shifts that happen to be for today (extra safety)
+      const upcomingShifts = upcomingShiftsRaw.filter(shift => {
+        const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
+        return shiftDate !== today; // Exclude today
+      });
 
       // Filter data based on user role (use allUsers for filtering)
       const displayUsers = allUsers;
@@ -280,7 +300,7 @@ export default function DashboardPage() {
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleWithNames);
-      setTeamMembers(employeesOnly); // Use only employees for drag-and-drop (no managers/admins for on-call)
+      setTeamMembers(deduplicateTeamMembers(employeesOnly)); // Use only employees for drag-and-drop (no managers/admins for on-call)
 
       
     } catch (error) {
@@ -320,18 +340,21 @@ export default function DashboardPage() {
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days = 7 days from tomorrow
 
       // Create proper date ranges for querying (add time components)
       const todayStart = `${today}T00:00:00.000Z`;
       const todayEnd = `${today}T23:59:59.999Z`;
       const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
-      const nextWeekEnd = `${nextWeek}T23:59:59.999Z`;
+      const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
 
       console.log('📅 Silent refresh - Date calculations:', { 
         today, 
         todayStart, 
-        todayEnd 
+        todayEnd,
+        tomorrowStart,
+        sevenDaysEnd,
+        note: 'Upcoming shifts: next 7 days from tomorrow, excluding today from results'
       });
 
       // Handle UPPERCASE roles from Appwrite
@@ -340,16 +363,22 @@ export default function DashboardPage() {
       const [
         allUsers,
         todayShifts,
-        upcomingShifts,
+        upcomingShiftsRaw,
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
-        shiftService.getShiftsByDateRange(tomorrowStart, nextWeekEnd), // Exclude today from upcoming shifts
+        shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd), // Next 7 days from tomorrow
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
+
+      // Filter out any shifts that happen to be for today (extra safety)
+      const upcomingShifts = upcomingShiftsRaw.filter(shift => {
+        const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
+        return shiftDate !== today; // Exclude today
+      });
 
       // Filter data based on user role (use allUsers for filtering)
       const displayUsers = allUsers;
@@ -452,7 +481,7 @@ export default function DashboardPage() {
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleList);
-      setTeamMembers(employeesOnly); // Use only employees for drag-and-drop (no managers/admins for on-call)
+      setTeamMembers(deduplicateTeamMembers(employeesOnly)); // Use only employees for drag-and-drop (no managers/admins for on-call)
       
     } catch {
       
@@ -527,23 +556,24 @@ export default function DashboardPage() {
           });
         }
         
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          upcomingShifts: prev.upcomingShifts + (eventType === 'CREATE' ? 1 : 0)
-        }));
+        // Stats will be updated automatically by the shifts count refresh effect
         
       } else if (eventType === 'DELETE') {
+        console.log('🗑️ Processing shift deletion:', { shiftId: payload.$id, shiftDate, isToday: shiftDate === today });
+        
         // Remove from today's schedule
         if (shiftDate === today) {
-          setTodaySchedule(prev => prev.filter(s => s.$id !== payload.$id));
+          setTodaySchedule(prev => {
+            const exists = prev.some(s => s.$id === payload.$id);
+            if (!exists) {
+              console.log('⚠️ Shift not found in today schedule, skipping removal:', payload.$id);
+              return prev;
+            }
+            return prev.filter(s => s.$id !== payload.$id);
+          });
         }
         
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          upcomingShifts: Math.max(0, prev.upcomingShifts - 1)
-        }));
+        // Stats will be updated automatically by the shifts count refresh effect
       }
     } catch {
       
@@ -650,6 +680,123 @@ export default function DashboardPage() {
     }
   }, [userRole, silentRefreshDashboard]);
 
+  // Helper function to refresh user count from database
+  const refreshUserCount = useCallback(async () => {
+    try {
+      if (!isManagerOrAdmin) return;
+      
+      console.log('🔄 Refreshing user count from database...');
+      const users = await userService.getAllUsers();
+      const employeeCount = users.filter(user => user.role === 'EMPLOYEE').length;
+      
+      setStats(prevStats => {
+        console.log('📊 Updated employee count from database:', prevStats.totalEmployees, '→', employeeCount);
+        return { ...prevStats, totalEmployees: employeeCount };
+      });
+    } catch (error) {
+      console.error('❌ Error refreshing user count:', error);
+    }
+  }, [isManagerOrAdmin]);
+
+  // Helper function to refresh upcoming shifts count from database
+  const refreshUpcomingShiftsCount = useCallback(async () => {
+    try {
+      console.log('🔄 Refreshing upcoming shifts count from database...');
+      
+      // Calculate dates - next 7 days starting from tomorrow
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days from today = 7 days from tomorrow
+      const today = new Date().toISOString().split('T')[0];
+      
+      const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
+      const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
+      
+      console.log('📅 Upcoming shifts date range:', { 
+        today,
+        tomorrow, 
+        sevenDaysFromTomorrow,
+        tomorrowStart, 
+        sevenDaysEnd, 
+        note: '7 days from tomorrow, excluding today from results' 
+      });
+      
+      // Get shifts for 7 days from tomorrow
+      const allShifts = await shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd);
+      
+      // Filter out any shifts that happen to be for today (extra safety)
+      const upcomingShifts = allShifts.filter(shift => {
+        const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
+        return shiftDate !== today; // Exclude today
+      });
+      
+      const upcomingCount = upcomingShifts.length;
+      
+      console.log('📊 Shifts filtering:', { 
+        totalFetched: allShifts.length, 
+        afterTodayFilter: upcomingCount,
+        todayDate: today,
+        shiftDates: allShifts.map(s => s.date.split('T')[0])
+      });
+      
+      setStats(prevStats => {
+        console.log('📊 Updated upcoming shifts count from database:', prevStats.upcomingShifts, '→', upcomingCount);
+        return { ...prevStats, upcomingShifts: upcomingCount };
+      });
+    } catch (error) {
+      console.error('❌ Error refreshing upcoming shifts count:', error);
+    }
+  }, []);
+
+  // Effect to refresh user count when user collection changes
+  useEffect(() => {
+    if (!user) return;
+
+    let refreshTimeout: NodeJS.Timeout;
+    
+    const handleUserCollectionChange = () => {
+      // Debounce the refresh to avoid multiple calls
+      clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => {
+        refreshUserCount();
+      }, 500); // 500ms debounce
+    };
+
+    const unsubscribe = client.subscribe(
+      [`databases.${DATABASE_ID}.collections.${COLLECTIONS.USERS}.documents`],
+      handleUserCollectionChange
+    );
+
+    return () => {
+      clearTimeout(refreshTimeout);
+      unsubscribe();
+    };
+  }, [user, refreshUserCount]);
+
+  // Effect to refresh upcoming shifts count when shifts collection changes
+  useEffect(() => {
+    if (!user) return;
+
+    let refreshTimeout: NodeJS.Timeout;
+    
+    const handleShiftsCollectionChange = () => {
+      // Debounce the refresh to avoid multiple calls
+      clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => {
+        refreshUpcomingShiftsCount();
+      }, 500); // 500ms debounce
+    };
+
+    const unsubscribe = client.subscribe(
+      [`databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`],
+      handleShiftsCollectionChange
+    );
+
+    return () => {
+      clearTimeout(refreshTimeout);
+      unsubscribe();
+    };
+  }, [user, refreshUpcomingShiftsCount]);
+
   const handleTeamMemberUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {
       console.log('🔄 Team member update:', { eventType, payload }); // Debug logging
@@ -661,19 +808,19 @@ export default function DashboardPage() {
         const newMember = payload as unknown as User;
         if (newMember.role === 'EMPLOYEE') {
           setTeamMembers(prev => {
-            const exists = prev.find(member => member.$id === newMember.$id);
-            if (exists) return prev; // Prevent duplicates
-            return [...prev, newMember];
+            // Check for duplicates more thoroughly
+            const exists = prev.some(member => member.$id === newMember.$id);
+            if (exists) {
+              console.log('⚠️ Member already exists, skipping duplicate creation:', newMember.$id);
+              return prev; // Prevent duplicates
+            }
+            console.log('✅ Adding new team member:', newMember.firstName, newMember.lastName);
+            const newMembers = [...prev, newMember];
+            return deduplicateTeamMembers(newMembers); // Ensure no duplicates
           });
         }
         
-        // Update stats consistently with initial load logic (only employees count for stats)
-        if (isManagerOrAdmin && newMember.role === 'EMPLOYEE') {
-          setStats(prev => {
-            console.log('📊 Incrementing employee count:', prev.totalEmployees, '→', prev.totalEmployees + 1);
-            return { ...prev, totalEmployees: prev.totalEmployees + 1 };
-          });
-        }
+        // Stats will be updated automatically by the user count refresh effect
       } else if (eventType === 'UPDATE') {
         // Update existing team member
         const updatedMember = payload as unknown as User;
@@ -682,33 +829,28 @@ export default function DashboardPage() {
         setTeamMembers(prev => {
           const oldMember = prev.find(member => member.$id === updatedMember.$id);
           
-          // Handle role changes that affect employee count (only if old member exists)
-          if (isManagerOrAdmin && oldMember) {
-            const wasEmployee = oldMember.role === 'EMPLOYEE';
-            const isEmployee = updatedMember.role === 'EMPLOYEE';
-            
-            if (wasEmployee && !isEmployee) {
-              // Changed from employee to manager/admin
-              setStats(prevStats => {
-                console.log('📊 Role change: Employee → Manager, decrementing count:', prevStats.totalEmployees, '→', Math.max(0, prevStats.totalEmployees - 1));
-                return { ...prevStats, totalEmployees: Math.max(0, prevStats.totalEmployees - 1) };
-              });
-            } else if (!wasEmployee && isEmployee) {
-              // Changed from manager/admin to employee
-              setStats(prevStats => {
-                console.log('📊 Role change: Manager → Employee, incrementing count:', prevStats.totalEmployees, '→', prevStats.totalEmployees + 1);
-                return { ...prevStats, totalEmployees: prevStats.totalEmployees + 1 };
-              });
-            }
+          // Only handle team members list, stats updated automatically by user count refresh
+          if (oldMember && updatedMember.role === 'EMPLOYEE') {
+            // Update existing employee
+            const updatedMembers = prev.map(member => 
+              member.$id === updatedMember.$id ? updatedMember : member
+            );
+            return deduplicateTeamMembers(updatedMembers);
+          } else if (oldMember && updatedMember.role !== 'EMPLOYEE') {
+            // Remove from team members if no longer an employee
+            console.log('⚠️ Member no longer employee, removing from team members:', updatedMember.firstName, updatedMember.lastName);
+            return prev.filter(member => member.$id !== updatedMember.$id);
+          } else if (!oldMember && updatedMember.role === 'EMPLOYEE') {
+            // Add to team members if became an employee
+            console.log('✅ Member became employee, adding to team members:', updatedMember.firstName, updatedMember.lastName);
+            const newMembers = [...prev, updatedMember];
+            return deduplicateTeamMembers(newMembers);
           }
           
-          // Return updated team members list
-          return prev.map(member => 
-            member.$id === updatedMember.$id ? updatedMember : member
-          );
+          return prev; // No changes needed
         });
       } else if (eventType === 'DELETE') {
-        // Handle deletion with proper deduplication and single atomic update
+        // Handle deletion with better deduplication and single atomic update
         const memberToDelete = teamMembers.find(member => member.$id === memberId);
         
         // Only proceed if the member actually exists in our current state
@@ -719,18 +861,24 @@ export default function DashboardPage() {
         
         console.log('📊 Found member to delete:', memberToDelete.firstName, memberToDelete.lastName, 'Role:', memberToDelete.role);
         
-        // Single atomic state update for both team members and stats
+        // Check if this member was already deleted (additional safety check)
+        const isAlreadyDeleted = !teamMembers.some(member => member.$id === memberId);
+        if (isAlreadyDeleted) {
+          console.log('⚠️ Member already deleted from state, skipping:', memberId);
+          return;
+        }
+        
+        // Only manage team members array - stats handled automatically by user count refresh
         setTeamMembers(prev => {
-          const filteredMembers = prev.filter(member => member.$id !== memberId);
-          
-          // Update stats only once within this same state update if the deleted member was an employee
-          if (isManagerOrAdmin && memberToDelete.role === 'EMPLOYEE') {
-            setStats(prevStats => {
-              const newCount = Math.max(0, prevStats.totalEmployees - 1);
-              console.log('📊 Deleting employee, decrementing count:', prevStats.totalEmployees, '→', newCount);
-              return { ...prevStats, totalEmployees: newCount };
-            });
+          // Double-check the member still exists before filtering
+          const memberExists = prev.some(member => member.$id === memberId);
+          if (!memberExists) {
+            console.log('⚠️ Member not found during state update, no changes made');
+            return prev; // Return unchanged state
           }
+          
+          const filteredMembers = prev.filter(member => member.$id !== memberId);
+          console.log('🗑️ Removed team member from drag-and-drop list:', memberToDelete.firstName, memberToDelete.lastName);
           
           return filteredMembers;
         });
@@ -739,7 +887,7 @@ export default function DashboardPage() {
       console.error('❌ Error handling team member update:', error);
       await silentRefreshDashboard();
     }
-  }, [isManagerOrAdmin, silentRefreshDashboard, teamMembers]);
+  }, [silentRefreshDashboard, teamMembers]);
 
   // Handle approval dialog
   const handleApprovalClick = (approval: DashboardApprovalRequest) => {
@@ -853,22 +1001,26 @@ export default function DashboardPage() {
         const events = response.events || [];
         const payload = response.payload;
         
-        // Create a unique identifier for this event - include more specificity to avoid blocking legitimate separate events
-        const eventKey = `${payload?.$id}-${events[0]}-${payload?.$updatedAt}-${payload?.onCallRole || 'unknown'}`;
+        // Create a unique identifier for this event - be more specific based on event type
+        let eventKey = `${payload?.$id}-${events[0]}-${payload?.$updatedAt}`;
         
-        // Skip if we've already processed this exact event (only check recent events within 100ms)
-        const now = Date.now();
-        const recentEventKey = `${eventKey}-${Math.floor(now / 100)}`; // Group events within 100ms windows
+        // Add specific identifiers for different collection types
+        if (events.some((e: string) => e.includes('shifts'))) {
+          eventKey += `-${payload?.onCallRole || 'unknown'}`;
+        } else if (events.some((e: string) => e.includes('users'))) {
+          eventKey += `-${payload?.role || 'unknown'}`;
+        }
         
-        if (processedEvents.has(recentEventKey)) {
-          console.log('🚫 Skipping duplicate event within 100ms:', recentEventKey);
+        // Check for exact duplicate events (same ID, event type, and timestamp)
+        if (processedEvents.has(eventKey)) {
+          console.log('🚫 Skipping duplicate event:', eventKey);
           return;
         }
         
-        // Add to processed events and cleanup old entries (keep only last 100)
-        processedEvents.add(recentEventKey);
-        if (processedEvents.size > 100) {
-          const oldEvents = Array.from(processedEvents).slice(0, 50);
+        // Add to processed events and cleanup old entries (keep only last 50)
+        processedEvents.add(eventKey);
+        if (processedEvents.size > 50) {
+          const oldEvents = Array.from(processedEvents).slice(0, 25);
           oldEvents.forEach(event => processedEvents.delete(event));
         }
         
@@ -1062,7 +1214,7 @@ export default function DashboardPage() {
       if (isEditingMember && editingMemberId) {
         // Update existing member
         const updatedUser = await userService.updateUser(editingMemberId, memberForm);
-        setTeamMembers(prev => prev.map(m => m.$id === editingMemberId ? updatedUser : m));
+        setTeamMembers(prev => deduplicateTeamMembers(prev.map(m => m.$id === editingMemberId ? updatedUser : m)));
         toast({
           title: "Success",
           description: "Team member updated successfully.",
@@ -1070,7 +1222,7 @@ export default function DashboardPage() {
       } else {
         // Create new member
         const newUser = await userService.createUser(memberForm);
-        setTeamMembers(prev => [...prev, newUser]);
+        setTeamMembers(prev => deduplicateTeamMembers([...prev, newUser]));
         toast({
           title: "Success",
           description: "Team member added successfully.",

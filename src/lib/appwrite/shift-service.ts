@@ -34,16 +34,22 @@ export class ShiftService {
     }
   }
 
-  async getShiftsByDateRange(startDate: string, endDate: string): Promise<Shift[]> {
+  async getShiftsByDateRange(startDate: string, endDate: string | null = null): Promise<Shift[]> {
     try {
+      const queries = [
+        Query.greaterThanEqual('date', startDate),
+        Query.orderAsc('date')
+      ];
+      
+      // Only add end date filter if endDate is provided
+      if (endDate) {
+        queries.splice(1, 0, Query.lessThanEqual('date', endDate));
+      }
+      
       const response = await databases.listDocuments(
         DATABASE_ID,
         COLLECTIONS.SHIFTS,
-        [
-          Query.greaterThanEqual('date', startDate),
-          Query.lessThanEqual('date', endDate),
-          Query.orderAsc('date')
-        ]
+        queries
       );
       return response.documents as unknown as Shift[];
     } catch (error) {

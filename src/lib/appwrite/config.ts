@@ -1,10 +1,13 @@
 import { Client, Account, Databases, Storage, Functions } from 'appwrite';
 
-// Appwrite configuration
+// Appwrite configuration for client-side
 const client = new Client()
   .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!)
   .setDevKey(process.env.APPWRITE_DEV_KEY!);
+
+// Note: Do not use setDevKey() for client-side applications
+// The platform (localhost:3000) must be configured in Appwrite Console
 
 // Export Appwrite services
 export const account = new Account(client);
