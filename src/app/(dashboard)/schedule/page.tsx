@@ -192,7 +192,7 @@ export default function SchedulePage() {
       // Fetch data
       const [shiftsData, usersData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDateStr, endDateStr),
-        user.role === 'MANAGER' || user.role === 'ADMIN' ? userService.getAllUsers() : [user]
+        userService.getAllUsers() // Always fetch all users so employees can see full team schedule
       ]);
 
       setShifts(shiftsData);
@@ -226,60 +226,94 @@ export default function SchedulePage() {
     fetchScheduleData();
   }, [fetchScheduleData]);
 
-  // Real-time subscription for shifts
+  // Real-time subscription for shifts with instant updates
   useEffect(() => {
     if (!user) return;
 
-    console.log('Setting up real-time subscription for shifts...');
+    console.log('Setting up real-time subscription for schedule management...');
     
     const unsubscribe = client.subscribe(
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
       ],
-      (response: { events: string[]; payload?: unknown }) => {
-        console.log('Real-time update received:', response);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: any) => {
+        console.log('Schedule management real-time update received:', response);
         
-        // Handle different types of events
         const events = response.events || [];
-        const shouldRefresh = events.some((event: string) => 
-          event.includes('documents.create') ||
-          event.includes('documents.update') ||
-          event.includes('documents.delete')
-        );
-
-        if (shouldRefresh) {
-          console.log('Refreshing schedule data due to real-time update...');
+        const payload = response.payload;
+        
+        // Check for specific event types
+        const hasCreateEvent = events.some((event: string) => event.includes('.create'));
+        const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
+        const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
+        
+        console.log('Schedule event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
+        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          console.log(`Processing ${eventType} event for instant schedule update...`, payload);
           
-          // Determine the type of update for better user feedback
-          const isCreate = events.some(e => e.includes('documents.create'));
-          const isUpdate = events.some(e => e.includes('documents.update'));
-          const isDelete = events.some(e => e.includes('documents.delete'));
-          
-          let updateMessage = "Schedule has been updated.";
-          if (isCreate) updateMessage = "New assignment created.";
-          else if (isUpdate) updateMessage = "Assignment updated.";
-          else if (isDelete) updateMessage = "Assignment removed.";
-          
-          // Show a subtle notification that data is being updated
-          toast({
-            title: "Schedule Updated",
-            description: updateMessage,
-            duration: 2000,
-          });
-          
-          // Add a small delay to ensure the database has been updated
-          setTimeout(async () => {
-            await fetchScheduleData();
-          }, 300);
+          try {
+            if (hasCreateEvent || hasUpdateEvent) {
+              // For CREATE/UPDATE: Get user info and update shifts directly
+              const updatedUser = await userService.getUserById(payload.userId);
+              
+              setShifts(prevShifts => {
+                const filteredShifts = prevShifts.filter(s => s.$id !== payload.$id);
+                if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
+                  const newShift: Shift = {
+                    $id: payload.$id,
+                    userId: payload.userId,
+                    date: payload.date,
+                    startTime: payload.startTime,
+                    endTime: payload.endTime,
+                    type: payload.type,
+                    onCallRole: payload.onCallRole,
+                    status: payload.status || 'SCHEDULED',
+                    createdAt: payload.createdAt || new Date().toISOString(),
+                    updatedAt: payload.updatedAt || new Date().toISOString(),
+                    $createdAt: payload.$createdAt || new Date().toISOString(),
+                    $updatedAt: payload.$updatedAt || new Date().toISOString()
+                  };
+                  console.log(`Instantly added/updated ${payload.onCallRole} shift for ${payload.date}:`, updatedUser.firstName);
+                  return [...filteredShifts, newShift];
+                }
+                return filteredShifts;
+              });
+            } else if (hasDeleteEvent) {
+              // For DELETE: Remove shift directly
+              setShifts(prevShifts => {
+                const filtered = prevShifts.filter(s => s.$id !== payload.$id);
+                console.log(`Instantly removed shift for ${payload.date}`);
+                return filtered;
+              });
+            }
+            
+            // Show toast notification
+            const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+            toast({
+              title: "Schedule Updated",
+              description: `Assignment ${eventTypeText} instantly`,
+              duration: 2000,
+            });
+            
+          } catch (error) {
+            console.error('Error in instant schedule update, falling back to refetch:', error);
+            // Fallback to full refetch only if instant update fails
+            setTimeout(async () => {
+              await fetchScheduleData();
+            }, 100);
+          }
         }
       }
     );
 
     return () => {
-      console.log('Cleaning up real-time subscription...');
+      console.log('Cleaning up schedule management real-time subscription...');
       unsubscribe();
     };
-  }, [user, fetchScheduleData, toast]);
+  }, [user, toast, fetchScheduleData]);
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => {

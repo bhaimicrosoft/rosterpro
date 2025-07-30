@@ -75,7 +75,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
       // Fetch shifts and users
       const [shiftsData, usersData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
-        user.role === 'MANAGER' || user.role === 'ADMIN' ? userService.getAllUsers() : [user as unknown as User]
+        userService.getAllUsers() // Always fetch all users so employees can see full team schedule
       ]);
       
       console.log('WeeklySchedule: Fetched shifts:', shiftsData.length, 'users:', usersData.length);
