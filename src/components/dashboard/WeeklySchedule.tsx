@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { CalendarDays, Loader2 } from 'lucide-react';
 import { User, AuthUser } from '@/types';
@@ -161,12 +160,21 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
     return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
   };
 
-  const getUserColor = (userId: string) => {
-    // Generate consistent colors based on user ID
-    const colors = [
-      'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 
-      'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500'
+  const getUserColor = (userId: string, role: 'primary' | 'backup') => {
+    // Primary users get stronger, more professional colors
+    const primaryColors = [
+      'bg-blue-600', 'bg-green-600', 'bg-purple-600', 'bg-red-600', 
+      'bg-indigo-600', 'bg-emerald-600', 'bg-rose-600', 'bg-violet-600'
     ];
+    
+    // Backup users get softer, secondary colors
+    const backupColors = [
+      'bg-blue-400', 'bg-green-400', 'bg-purple-400', 'bg-red-400', 
+      'bg-indigo-400', 'bg-emerald-400', 'bg-rose-400', 'bg-violet-400'
+    ];
+    
+    const colors = role === 'primary' ? primaryColors : backupColors;
+    
     let hash = 0;
     for (let i = 0; i < userId.length; i++) {
       hash = userId.charCodeAt(i) + ((hash << 5) - hash);
@@ -240,47 +248,61 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                   </div>
 
                   {/* Primary Assignment */}
-                  <div className="space-y-1">
-                    <Badge variant="secondary" className="text-xs px-1 py-0 h-4 w-full justify-center">
+                  <div className="space-y-2">
+                    <Badge variant="default" className="text-xs px-2 py-0.5 h-5 w-full justify-center bg-blue-600 hover:bg-blue-700">
                       Primary
                     </Badge>
                     {day.primary ? (
-                      <div className="flex flex-col items-center space-y-1">
-                        <Avatar className={`h-7 w-7 text-xs ${getUserColor(day.primary.$id)}`}>
-                          <AvatarFallback className="text-white text-xs">
+                      <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-2 text-white shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${getUserColor(day.primary.$id, 'primary')} ring-2 ring-white`}>
                             {getUserInitials(day.primary)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="text-xs font-medium text-center leading-tight">
-                          {day.primary.firstName.charAt(0).toUpperCase() + day.primary.firstName.slice(1).toLowerCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate">
+                              {day.primary.firstName} {day.primary.lastName.charAt(0)}.
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground text-center">
-                        Unassigned
+                      <div className="bg-gradient-to-r from-gray-100 to-gray-200 rounded-lg p-2 border-2 border-dashed border-gray-300">
+                        <div className="text-center">
+                          <div className="w-6 h-6 mx-auto rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center mb-1">
+                            <span className="text-gray-400 text-xs">?</span>
+                          </div>
+                          <div className="text-xs text-gray-500 font-medium">Unassigned</div>
+                        </div>
                       </div>
                     )}
                   </div>
 
                   {/* Backup Assignment */}
-                  <div className="space-y-1">
-                    <Badge variant="outline" className="text-xs px-1 py-0 h-4 w-full justify-center">
+                  <div className="space-y-2">
+                    <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 w-full justify-center border-green-400 text-green-700 bg-green-50">
                       Backup
                     </Badge>
                     {day.backup ? (
-                      <div className="flex flex-col items-center space-y-1">
-                        <Avatar className={`h-7 w-7 text-xs ${getUserColor(day.backup.$id)}`}>
-                          <AvatarFallback className="text-white text-xs">
+                      <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg p-2 text-white shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${getUserColor(day.backup.$id, 'backup')} ring-2 ring-white`}>
                             {getUserInitials(day.backup)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="text-xs font-medium text-center leading-tight">
-                          {day.backup.firstName.charAt(0).toUpperCase() + day.backup.firstName.slice(1).toLowerCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate">
+                              {day.backup.firstName} {day.backup.lastName.charAt(0)}.
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground text-center">
-                        Unassigned
+                      <div className="bg-gradient-to-r from-gray-100 to-gray-200 rounded-lg p-2 border-2 border-dashed border-gray-300">
+                        <div className="text-center">
+                          <div className="w-6 h-6 mx-auto rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center mb-1">
+                            <span className="text-gray-400 text-xs">?</span>
+                          </div>
+                          <div className="text-xs text-gray-500 font-medium">Unassigned</div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -329,47 +351,61 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                   </div>
 
                   {/* Primary Assignment */}
-                  <div className="space-y-1">
-                    <Badge variant="secondary" className="text-xs px-1 py-0 h-4">
+                  <div className="space-y-2">
+                    <Badge variant="default" className="text-xs px-2 py-0.5 h-5 bg-blue-600 hover:bg-blue-700">
                       Primary
                     </Badge>
                     {day.primary ? (
-                      <div className="flex flex-col items-center space-y-1">
-                        <Avatar className={`h-6 w-6 text-xs ${getUserColor(day.primary.$id)}`}>
-                          <AvatarFallback className="text-white text-xs">
+                      <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-2 text-white shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${getUserColor(day.primary.$id, 'primary')} ring-2 ring-white`}>
                             {getUserInitials(day.primary)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="text-xs font-medium text-center leading-tight">
-                          {day.primary.firstName.charAt(0).toUpperCase() + day.primary.firstName.slice(1).toLowerCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate">
+                              {day.primary.firstName} {day.primary.lastName.charAt(0)}.
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground text-center">
-                        Unassigned
+                      <div className="bg-gradient-to-r from-gray-100 to-gray-200 rounded-lg p-2 border-2 border-dashed border-gray-300">
+                        <div className="text-center">
+                          <div className="w-6 h-6 mx-auto rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center mb-1">
+                            <span className="text-gray-400 text-xs">?</span>
+                          </div>
+                          <div className="text-xs text-gray-500 font-medium">Unassigned</div>
+                        </div>
                       </div>
                     )}
                   </div>
 
                   {/* Backup Assignment */}
-                  <div className="space-y-1">
-                    <Badge variant="outline" className="text-xs px-1 py-0 h-4">
+                  <div className="space-y-2">
+                    <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 border-green-400 text-green-700 bg-green-50">
                       Backup
                     </Badge>
                     {day.backup ? (
-                      <div className="flex flex-col items-center space-y-1">
-                        <Avatar className={`h-6 w-6 text-xs ${getUserColor(day.backup.$id)}`}>
-                          <AvatarFallback className="text-white text-xs">
+                      <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg p-2 text-white shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${getUserColor(day.backup.$id, 'backup')} ring-2 ring-white`}>
                             {getUserInitials(day.backup)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="text-xs font-medium text-center leading-tight">
-                          {day.backup.firstName.charAt(0).toUpperCase() + day.backup.firstName.slice(1).toLowerCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate">
+                              {day.backup.firstName} {day.backup.lastName.charAt(0)}.
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground text-center">
-                        Unassigned
+                      <div className="bg-gradient-to-r from-gray-100 to-gray-200 rounded-lg p-2 border-2 border-dashed border-gray-300">
+                        <div className="text-center">
+                          <div className="w-6 h-6 mx-auto rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center mb-1">
+                            <span className="text-gray-400 text-xs">?</span>
+                          </div>
+                          <div className="text-xs text-gray-500 font-medium">Unassigned</div>
+                        </div>
                       </div>
                     )}
                   </div>

@@ -17,6 +17,18 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import {
   Users,
   Calendar,
   Clock,
@@ -28,6 +40,7 @@ import {
   CheckCircle,
   CalendarDays,
   UserCheck,
+  Plus,
 } from 'lucide-react';
 import WeeklySchedule from '@/components/dashboard/WeeklySchedule';
 
@@ -38,6 +51,20 @@ export default function DashboardPage() {
   // Core state
   const [isLoading, setIsLoading] = useState(true);
   const [hasCollectionError, setHasCollectionError] = useState(false);
+  
+  // Dialog states
+  const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
+  const [isSchedulingShift, setIsSchedulingShift] = useState(false);
+  
+  // Form state for schedule dialog
+  const [scheduleForm, setScheduleForm] = useState({
+    date: '',
+    startTime: '',
+    endTime: '',
+    employeeId: '',
+    onCallRole: 'PRIMARY' as 'PRIMARY' | 'BACKUP',
+    notes: '',
+  });
   
   // Dashboard data state
   const [stats, setStats] = useState<DashboardStats>({
@@ -301,6 +328,128 @@ export default function DashboardPage() {
     }
   }, [fetchDashboardData, toast]);
 
+  // Handle schedule shift form submission
+  const handleScheduleShift = useCallback(async () => {
+    if (!scheduleForm.date || !scheduleForm.employeeId) {
+      toast({
+        title: "Validation Error",
+        description: "Date and employee selection are required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSchedulingShift(true);
+    try {
+      await shiftService.createShift({
+        userId: scheduleForm.employeeId,
+        date: scheduleForm.date,
+        startTime: scheduleForm.startTime || undefined,
+        endTime: scheduleForm.endTime || undefined,
+        onCallRole: scheduleForm.onCallRole,
+        status: 'SCHEDULED',
+        type: scheduleForm.notes || undefined,
+      });
+
+      toast({
+        title: "Shift Scheduled",
+        description: "The shift has been successfully created",
+      });
+
+      // Reset form and close dialog
+      setScheduleForm({
+        date: '',
+        startTime: '',
+        endTime: '',
+        employeeId: '',
+        onCallRole: 'PRIMARY',
+        notes: '',
+      });
+      setIsScheduleDialogOpen(false);
+
+      // Refresh data
+      await fetchDashboardData();
+    } catch (error) {
+      console.error('Error creating shift:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create shift. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSchedulingShift(false);
+    }
+  }, [scheduleForm, shiftService, toast, fetchDashboardData]);
+
+  // Helper function to convert Tailwind bg classes to hex colors
+  const getHexColor = useCallback((bgClass: string): string => {
+    const colorMap: Record<string, string> = {
+      'bg-blue-600': '#2563eb',
+      'bg-emerald-600': '#059669', 
+      'bg-purple-600': '#9333ea',
+      'bg-orange-600': '#ea580c',
+      'bg-rose-600': '#e11d48',
+      'bg-indigo-600': '#4f46e5',
+      'bg-teal-600': '#0d9488',
+      'bg-violet-600': '#7c3aed',
+      'bg-blue-500': '#3b82f6',
+      'bg-emerald-500': '#10b981',
+      'bg-purple-500': '#a855f7',
+      'bg-orange-500': '#f97316',
+      'bg-rose-500': '#f43f5e',
+      'bg-indigo-500': '#6366f1',
+      'bg-teal-500': '#14b8a6',
+      'bg-violet-500': '#8b5cf6',
+    };
+    return colorMap[bgClass] || '#3b82f6'; // Default to blue
+  }, []);
+
+  // Helper function to get consistent user colors
+  const getUserColor = useCallback((userId: string, role?: 'PRIMARY' | 'BACKUP' | 'MANAGER' | 'EMPLOYEE') => {
+    // Professional color palettes
+    const primaryColors = [
+      { bg: 'bg-blue-600', text: 'text-blue-600', border: 'border-blue-200', light: 'bg-blue-50' },
+      { bg: 'bg-emerald-600', text: 'text-emerald-600', border: 'border-emerald-200', light: 'bg-emerald-50' },
+      { bg: 'bg-purple-600', text: 'text-purple-600', border: 'border-purple-200', light: 'bg-purple-50' },
+      { bg: 'bg-orange-600', text: 'text-orange-600', border: 'border-orange-200', light: 'bg-orange-50' },
+      { bg: 'bg-rose-600', text: 'text-rose-600', border: 'border-rose-200', light: 'bg-rose-50' },
+      { bg: 'bg-indigo-600', text: 'text-indigo-600', border: 'border-indigo-200', light: 'bg-indigo-50' },
+      { bg: 'bg-teal-600', text: 'text-teal-600', border: 'border-teal-200', light: 'bg-teal-50' },
+      { bg: 'bg-violet-600', text: 'text-violet-600', border: 'border-violet-200', light: 'bg-violet-50' },
+    ];
+
+    const backupColors = [
+      { bg: 'bg-blue-500', text: 'text-blue-500', border: 'border-blue-300', light: 'bg-blue-100' },
+      { bg: 'bg-emerald-500', text: 'text-emerald-500', border: 'border-emerald-300', light: 'bg-emerald-100' },
+      { bg: 'bg-purple-500', text: 'text-purple-500', border: 'border-purple-300', light: 'bg-purple-100' },
+      { bg: 'bg-orange-500', text: 'text-orange-500', border: 'border-orange-300', light: 'bg-orange-100' },
+      { bg: 'bg-rose-500', text: 'text-rose-500', border: 'border-rose-300', light: 'bg-rose-100' },
+      { bg: 'bg-indigo-500', text: 'text-indigo-500', border: 'border-indigo-300', light: 'bg-indigo-100' },
+      { bg: 'bg-teal-500', text: 'text-teal-500', border: 'border-teal-300', light: 'bg-teal-100' },
+      { bg: 'bg-violet-500', text: 'text-violet-500', border: 'border-violet-300', light: 'bg-violet-100' },
+    ];
+
+    // Use different palettes based on role
+    let colors = primaryColors;
+    if (role === 'BACKUP') colors = backupColors;
+    if (role === 'EMPLOYEE') colors = backupColors;
+
+    // Generate consistent hash
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+      hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    return colors[Math.abs(hash) % colors.length];
+  }, []);
+
+  // Get role badge colors
+  const getRoleBadgeColor = useCallback((role: 'PRIMARY' | 'BACKUP') => {
+    return role === 'PRIMARY' 
+      ? { variant: 'default' as const, className: 'bg-blue-600 hover:bg-blue-700 text-white' }
+      : { variant: 'secondary' as const, className: 'bg-green-100 text-green-800 border-green-300' };
+  }, []);
+
   if (!user) {
     return (
       <DashboardLayout>
@@ -357,7 +506,7 @@ export default function DashboardPage() {
             {isManagerOrAdmin && (
               <>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/schedule/new'}
+                  onClick={() => setIsScheduleDialogOpen(true)}
                   size="sm"
                   className="gap-2 bg-blue-600 hover:bg-blue-700"
                 >
@@ -365,7 +514,7 @@ export default function DashboardPage() {
                   Schedule Shift
                 </Button>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/team-management'}
+                  onClick={() => window.location.href = '/dashboard/team'}
                   size="sm"
                   variant="outline"
                   className="gap-2"
@@ -380,7 +529,7 @@ export default function DashboardPage() {
             {!isManagerOrAdmin && (
               <>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/leave-requests/new'}
+                  onClick={() => window.location.href = '/dashboard/leaves'}
                   size="sm"
                   className="gap-2 bg-green-600 hover:bg-green-700"
                 >
@@ -388,7 +537,7 @@ export default function DashboardPage() {
                   Request Leave
                 </Button>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/swap-requests'}
+                  onClick={() => window.location.href = '/dashboard/swaps'}
                   size="sm"
                   variant="outline"
                   className="gap-2"
@@ -403,66 +552,76 @@ export default function DashboardPage() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Card>
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-md transition-all duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
+              <CardTitle className="text-sm font-medium text-blue-800">
                 {isManagerOrAdmin ? 'Total Employees' : 'My Shifts'}
               </CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
+              <div className="p-2 bg-blue-200 rounded-lg">
+                <Users className="h-4 w-4 text-blue-600" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalEmployees}</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold text-blue-900">{stats.totalEmployees}</div>
+              <p className="text-xs text-blue-600">
                 {isManagerOrAdmin ? 'Active team members' : 'This week'}
               </p>
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-md transition-all duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today&apos;s Shifts</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-green-800">Today&apos;s Shifts</CardTitle>
+              <div className="p-2 bg-green-200 rounded-lg">
+                <Calendar className="h-4 w-4 text-green-600" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.todayShifts}</div>
-              <p className="text-xs text-muted-foreground">Active today</p>
+              <div className="text-2xl font-bold text-green-900">{stats.todayShifts}</div>
+              <p className="text-xs text-green-600">Active today</p>
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 hover:shadow-md transition-all duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Leaves</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-orange-800">Pending Leaves</CardTitle>
+              <div className="p-2 bg-orange-200 rounded-lg">
+                <FileText className="h-4 w-4 text-orange-600" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingLeaveRequests}</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold text-orange-900">{stats.pendingLeaveRequests}</div>
+              <p className="text-xs text-orange-600">
                 {isManagerOrAdmin ? 'Awaiting approval' : 'Your pending requests'}
               </p>
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 hover:shadow-md transition-all duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Swaps</CardTitle>
-              <RotateCcw className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-purple-800">Pending Swaps</CardTitle>
+              <div className="p-2 bg-purple-200 rounded-lg">
+                <RotateCcw className="h-4 w-4 text-purple-600" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.pendingSwapRequests}</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold text-purple-900">{stats.pendingSwapRequests}</div>
+              <p className="text-xs text-purple-600">
                 {isManagerOrAdmin ? 'Awaiting approval' : 'Your pending requests'}
               </p>
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200 hover:shadow-md transition-all duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Upcoming Shifts</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-indigo-800">Upcoming Shifts</CardTitle>
+              <div className="p-2 bg-indigo-200 rounded-lg">
+                <TrendingUp className="h-4 w-4 text-indigo-600" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.upcomingShifts}</div>
-              <p className="text-xs text-muted-foreground">Next 7 days</p>
+              <div className="text-2xl font-bold text-indigo-900">{stats.upcomingShifts}</div>
+              <p className="text-xs text-indigo-600">Next 7 days</p>
             </CardContent>
           </Card>
         </div>
@@ -486,7 +645,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/schedule/new'}
+                    onClick={() => setIsScheduleDialogOpen(true)}
                     className="w-full bg-blue-600 hover:bg-blue-700"
                     size="sm"
                   >
@@ -509,7 +668,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/team-management'}
+                    onClick={() => window.location.href = '/dashboard/team'}
                     className="w-full bg-green-600 hover:bg-green-700"
                     size="sm"
                   >
@@ -532,7 +691,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/leave-requests'}
+                    onClick={() => window.location.href = '/dashboard/leaves'}
                     className="w-full bg-purple-600 hover:bg-purple-700"
                     size="sm"
                   >
@@ -581,7 +740,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/leave-requests/new'}
+                    onClick={() => window.location.href = '/dashboard/leaves'}
                     className="w-full bg-green-600 hover:bg-green-700"
                     size="sm"
                   >
@@ -604,7 +763,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/swap-requests'}
+                    onClick={() => window.location.href = '/dashboard/swaps'}
                     className="w-full bg-blue-600 hover:bg-blue-700"
                     size="sm"
                   >
@@ -650,7 +809,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/leave-requests'}
+                    onClick={() => window.location.href = '/dashboard/leaves'}
                     className="w-full bg-orange-600 hover:bg-orange-700"
                     size="sm"
                   >
@@ -709,25 +868,56 @@ export default function DashboardPage() {
                 </div>
               ) : todaySchedule.length > 0 ? (
                 <div className="space-y-4">
-                  {todaySchedule.map((shift) => (
-                    <div key={shift.$id} className="flex items-center space-x-3 p-3 border rounded-lg">
-                      <Avatar>
-                        <AvatarFallback>
-                          {shift._employeeName?.split(' ').map((n: string) => n[0]).join('') || 'UN'}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <p className="font-medium">{shift._employeeName || 'Unknown Employee'}</p>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          {shift.startTime && shift.endTime ? `${shift.startTime} - ${shift.endTime}` : shift.onCallRole}
+                  {todaySchedule.map((shift) => {
+                    const userColors = getUserColor(shift.userId, shift.onCallRole);
+                    const roleColors = getRoleBadgeColor(shift.onCallRole);
+                    
+                    return (
+                      <div 
+                        key={shift.$id} 
+                        className={`flex items-center space-x-4 p-4 rounded-lg border ${userColors.border} ${userColors.light} hover:shadow-md transition-all duration-200`}
+                      >
+                        <Avatar className="h-12 w-12 ring-2 ring-white shadow-md" style={{ backgroundColor: getHexColor(userColors.bg) }}>
+                          <AvatarFallback className="text-white font-semibold bg-transparent">
+                            {shift._employeeName?.split(' ').map((n: string) => n[0]).join('') || 'UN'}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <p className={`font-semibold text-lg ${userColors.text}`}>
+                            {shift._employeeName || 'Unknown Employee'}
+                          </p>
+                          <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              <span>
+                                {shift.startTime && shift.endTime ? `${shift.startTime} - ${shift.endTime}` : 'All Day'}
+                              </span>
+                            </div>
+                            {shift.type && (
+                              <div className="flex items-center gap-1">
+                                <CalendarDays className="h-3 w-3" />
+                                <span>{shift.type.replace('_', ' ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge 
+                            variant={roleColors.variant}
+                            className={`${roleColors.className} font-medium px-3 py-1`}
+                          >
+                            {shift.onCallRole}
+                          </Badge>
+                          <Badge 
+                            variant="outline" 
+                            className={`text-xs ${userColors.text} ${userColors.border}`}
+                          >
+                            {shift.status.replace('_', ' ')}
+                          </Badge>
                         </div>
                       </div>
-                      <Badge variant={shift.type === 'ON_CALL' ? 'destructive' : 'secondary'}>
-                        {shift.type ? shift.type.replace('_', ' ') : shift.onCallRole}
-                      </Badge>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
@@ -832,26 +1022,59 @@ export default function DashboardPage() {
                 </div>
               ) : teamMembers.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {teamMembers.slice(0, 6).map((member) => (
-                    <div key={member.$id} className="flex items-center space-x-3 p-3 border rounded-lg">
-                      <Avatar>
-                        <AvatarFallback>
-                          {member.firstName[0]}{member.lastName[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{member.firstName} {member.lastName}</p>
-                        <div className="flex items-center gap-2">
-                          <Badge 
-                            variant={member.role === 'MANAGER' ? 'default' : 'secondary'}
-                            className="text-xs"
-                          >
-                            {member.role}
-                          </Badge>
+                  {teamMembers.slice(0, 6).map((member) => {
+                    const userColors = getUserColor(member.$id, member.role as 'MANAGER' | 'EMPLOYEE');
+                    
+                    return (
+                      <div 
+                        key={member.$id} 
+                        className={`flex items-center space-x-4 p-4 rounded-lg border ${userColors.border} ${userColors.light} hover:shadow-md transition-all duration-200 cursor-pointer`}
+                      >
+                        <Avatar className="h-12 w-12 ring-2 ring-white shadow-md" style={{ backgroundColor: getHexColor(userColors.bg) }}>
+                          <AvatarFallback className="text-white font-semibold text-sm bg-transparent">
+                            {member.firstName[0]}{member.lastName[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-sm ${userColors.text} truncate`}>
+                            {member.firstName} {member.lastName}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge 
+                              variant={member.role === 'MANAGER' ? 'default' : 'secondary'}
+                              className={`text-xs ${
+                                member.role === 'MANAGER' 
+                                  ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white' 
+                                  : `${userColors.text} ${userColors.border} bg-white`
+                              }`}
+                            >
+                              {member.role}
+                            </Badge>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <div className={`w-2 h-2 rounded-full ${userColors.bg}`}></div>
+                              <span className="truncate">
+                                {member.email ? member.email.split('@')[0] : member.username}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
+                    );
+                  })}
+                  {teamMembers.length > 6 && (
+                    <div 
+                      className="flex items-center justify-center p-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+                      onClick={() => window.location.href = '/team'}
+                    >
+                      <div className="text-center">
+                        <Users className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm font-medium text-gray-600">
+                          +{teamMembers.length - 6} more members
+                        </p>
+                        <p className="text-xs text-gray-500">Click to view all</p>
+                      </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
@@ -863,6 +1086,140 @@ export default function DashboardPage() {
           </Card>
         )}
       </div>
+
+      {/* Schedule Shift Dialog */}
+      <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Schedule New Shift</DialogTitle>
+            <DialogDescription>
+              Create a new shift assignment for a team member.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="date" className="text-right">
+                Date *
+              </Label>
+              <Input
+                id="date"
+                type="date"
+                className="col-span-3"
+                value={scheduleForm.date}
+                onChange={(e) => setScheduleForm(prev => ({ ...prev, date: e.target.value }))}
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="employee" className="text-right">
+                Employee *
+              </Label>
+              <Select
+                value={scheduleForm.employeeId}
+                onValueChange={(value) => setScheduleForm(prev => ({ ...prev, employeeId: value }))}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamMembers.map((member) => (
+                    <SelectItem key={member.$id} value={member.$id}>
+                      {member.firstName} {member.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="role" className="text-right">
+                Role
+              </Label>
+              <Select
+                value={scheduleForm.onCallRole}
+                onValueChange={(value: 'PRIMARY' | 'BACKUP') => 
+                  setScheduleForm(prev => ({ ...prev, onCallRole: value }))
+                }
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PRIMARY">Primary</SelectItem>
+                  <SelectItem value="BACKUP">Backup</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="startTime" className="text-right">
+                Start Time
+              </Label>
+              <Input
+                id="startTime"
+                type="time"
+                className="col-span-3"
+                value={scheduleForm.startTime}
+                onChange={(e) => setScheduleForm(prev => ({ ...prev, startTime: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="endTime" className="text-right">
+                End Time
+              </Label>
+              <Input
+                id="endTime"
+                type="time"
+                className="col-span-3"
+                value={scheduleForm.endTime}
+                onChange={(e) => setScheduleForm(prev => ({ ...prev, endTime: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="notes" className="text-right">
+                Notes
+              </Label>
+              <Textarea
+                id="notes"
+                className="col-span-3"
+                placeholder="Additional notes (optional)"
+                value={scheduleForm.notes}
+                onChange={(e) => setScheduleForm(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsScheduleDialogOpen(false)}
+              disabled={isSchedulingShift}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleScheduleShift}
+              disabled={isSchedulingShift || !scheduleForm.date || !scheduleForm.employeeId}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isSchedulingShift ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Shift
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
