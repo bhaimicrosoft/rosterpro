@@ -203,6 +203,53 @@ export default function SchedulePage() {
     }
   }, [user, currentDate, viewMode]);
 
+  // Silent refetch without loading spinner (for real-time fallback)
+  const silentRefetchScheduleData = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      console.log('Schedule Management: Silent refetch triggered');
+      
+      let startDateStr: string;
+      let endDateStr: string;
+
+      if (viewMode === 'week') {
+        // For week view, get current week range
+        const startOfWeek = new Date(currentDate);
+        const day = startOfWeek.getDay();
+        startOfWeek.setDate(currentDate.getDate() - day);
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        
+        startDateStr = startOfWeek.toISOString().split('T')[0];
+        endDateStr = endOfWeek.toISOString().split('T')[0];
+      } else {
+        // For month view, get extended date range
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        
+        const startDate = new Date(year, month - 1, 20);
+        const endDate = new Date(year, month + 2, 10);
+        
+        startDateStr = startDate.toISOString().split('T')[0];
+        endDateStr = endDate.toISOString().split('T')[0];
+      }
+
+      // Fetch data
+      const [shiftsData, usersData] = await Promise.all([
+        shiftService.getShiftsByDateRange(startDateStr, endDateStr),
+        userService.getAllUsers()
+      ]);
+
+      setShifts(shiftsData);
+      setAllUsers(usersData as User[]);
+      
+    } catch (error) {
+      console.error('Error in silent refetch:', error);
+    }
+  }, [user, currentDate, viewMode]);
+
   // Filter users for assignment (exclude managers and admins)
   const assignableUsers = useMemo(() => {
     return allUsers.filter(u => u.role === 'EMPLOYEE');
@@ -239,13 +286,9 @@ export default function SchedulePage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
         console.log('Schedule management real-time update received:', response);
-        console.log('Schedule management: Processing response...');
         
         const events = response.events || [];
         const payload = response.payload;
-        
-        console.log('Schedule management: Events extracted:', events);
-        console.log('Schedule management: Payload extracted:', payload);
         
         // Check for specific event types with more robust pattern matching
         const hasCreateEvent = events.some((event: string) => 
@@ -309,10 +352,10 @@ export default function SchedulePage() {
             });
             
           } catch (error) {
-            console.error('Error in instant schedule update, falling back to refetch:', error);
-            // Fallback to full refetch only if instant update fails
-            setTimeout(async () => {
-              await fetchScheduleData();
+            console.error('Error in instant schedule update, falling back to silent refetch:', error);
+            // Fallback to silent refetch only if instant update fails
+            setTimeout(() => {
+              silentRefetchScheduleData();
             }, 100);
           }
         }
@@ -323,7 +366,7 @@ export default function SchedulePage() {
       console.log('Cleaning up schedule management real-time subscription...');
       unsubscribe();
     };
-  }, [user, toast, fetchScheduleData]);
+  }, [user, toast, silentRefetchScheduleData]);
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => {
