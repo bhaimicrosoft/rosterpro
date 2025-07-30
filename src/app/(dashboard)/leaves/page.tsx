@@ -63,11 +63,36 @@ export default function LeavesPage() {
     }
   }, [user]);
 
+  // Silent refresh without loading spinner (for real-time fallback)
+  const silentRefreshLeaveData = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      console.log('Leaves: Silent refresh triggered');
+      
+      let requests: LeaveRequest[] = [];
+      let users: UserType[] = [];
+
+      if (user.role === 'EMPLOYEE') {
+        requests = await leaveService.getLeaveRequestsByUser(user.$id);
+      } else {
+        requests = await leaveService.getAllLeaveRequests();
+        users = await userService.getAllUsers();
+      }
+
+      setLeaveRequests(requests);
+      setTeamMembers(users);
+      
+    } catch (error) {
+      console.error('Error in silent refresh:', error);
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchLeaveData();
   }, [fetchLeaveData]);
 
-  // Real-time subscriptions for leave requests
+  // Real-time subscriptions for leave requests with instant updates
   useEffect(() => {
     if (!user) return;
 
@@ -77,31 +102,79 @@ export default function LeavesPage() {
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.LEAVES}.documents`,
       ],
-      (response: { events: string[]; payload?: unknown }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: any) => {
         console.log('Leave requests real-time update received:', response);
         
-        // Handle different types of events
         const events = response.events || [];
-        const shouldRefresh = events.some((event: string) => 
-          event.includes('documents.create') ||
-          event.includes('documents.update') ||
-          event.includes('documents.delete')
+        const payload = response.payload;
+        
+        // Check for specific event types with more robust pattern matching
+        const hasCreateEvent = events.some((event: string) => 
+          event.includes('.create') || event.includes('documents.create')
         );
+        const hasUpdateEvent = events.some((event: string) => 
+          event.includes('.update') || event.includes('documents.update')
+        );
+        const hasDeleteEvent = events.some((event: string) => 
+          event.includes('.delete') || event.includes('documents.delete')
+        );
+        
+        console.log('Leave event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
 
-        if (shouldRefresh) {
-          console.log('Refreshing leave requests data due to real-time update...');
+        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          console.log(`Processing ${eventType} event for instant leave update...`, payload);
           
-          // Show a subtle notification that data is being updated
-          toast({
-            title: "Leave Requests Updated",
-            description: "Leave request data has been updated.",
-            duration: 2000,
-          });
-          
-          // Add a small delay to ensure the database has been updated
-          setTimeout(() => {
-            fetchLeaveData();
-          }, 300);
+          try {
+            if (hasCreateEvent || hasUpdateEvent) {
+              // For CREATE/UPDATE: Update leave requests directly
+              setLeaveRequests(prevRequests => {
+                const filteredRequests = prevRequests.filter(lr => lr.$id !== payload.$id);
+                if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
+                  const newRequest: LeaveRequest = {
+                    $id: payload.$id,
+                    userId: payload.userId,
+                    startDate: payload.startDate,
+                    endDate: payload.endDate,
+                    type: payload.type,
+                    reason: payload.reason,
+                    status: payload.status || 'PENDING',
+                    managerComments: payload.managerComments || '',
+                    createdAt: payload.createdAt || new Date().toISOString(),
+                    updatedAt: payload.updatedAt || new Date().toISOString(),
+                    $createdAt: payload.$createdAt || new Date().toISOString(),
+                    $updatedAt: payload.$updatedAt || new Date().toISOString()
+                  };
+                  console.log(`Instantly ${eventType === 'CREATE' ? 'added' : 'updated'} leave request:`, payload.type);
+                  return [...filteredRequests, newRequest];
+                }
+                return filteredRequests;
+              });
+            } else if (hasDeleteEvent) {
+              // For DELETE: Remove leave request directly
+              setLeaveRequests(prevRequests => {
+                const filtered = prevRequests.filter(lr => lr.$id !== payload.$id);
+                console.log('Instantly removed leave request');
+                return filtered;
+              });
+            }
+            
+            // Show toast notification
+            const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+            toast({
+              title: "Leave Requests Updated",
+              description: `Leave request ${eventTypeText} instantly`,
+              duration: 2000,
+            });
+            
+          } catch (error) {
+            console.error('Error in instant leave update, falling back to silent refresh:', error);
+            // Fallback to silent refresh only if instant update fails
+            setTimeout(() => {
+              silentRefreshLeaveData();
+            }, 100);
+          }
         }
       }
     );
@@ -110,7 +183,7 @@ export default function LeavesPage() {
       console.log('Cleaning up leave requests real-time subscriptions...');
       unsubscribe();
     };
-  }, [user, fetchLeaveData, toast]);
+  }, [user, toast, silentRefreshLeaveData]);
 
   const refreshLeaveData = async () => {
     setIsRefreshing(true);

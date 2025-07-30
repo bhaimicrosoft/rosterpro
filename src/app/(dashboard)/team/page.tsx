@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,10 +37,13 @@ import {
 } from 'lucide-react';
 import { userService } from '@/lib/appwrite/user-service';
 import { account } from '@/lib/appwrite/config';
+import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
+import { useToast } from '@/hooks/use-toast';
 import { User } from '@/types';
 
 export default function TeamPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,32 +60,165 @@ export default function TeamPage() {
     password: '',
   });
 
-  useEffect(() => {
-    const fetchTeamData = async () => {
-      if (!user || user.role === 'EMPLOYEE') return;
+  const fetchTeamData = useCallback(async () => {
+    if (!user || user.role === 'EMPLOYEE') return;
 
-      setIsLoading(true);
-      try {
-        const users = await userService.getAllUsers();
-        setAllUsers(users);
-        
-        if (user.role === 'MANAGER') {
-          // Filter to show only team members
-          const myTeam = users.filter((u: User) => u.manager === user.$id);
-          setTeamMembers(myTeam);
-        } else {
-          // Admin sees all users
-          setTeamMembers(users);
-        }
-      } catch (error) {
-        console.error('Error fetching team data:', error);
-      } finally {
-        setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const users = await userService.getAllUsers();
+      setAllUsers(users);
+      
+      if (user.role === 'MANAGER') {
+        // Filter to show only team members
+        const myTeam = users.filter((u: User) => u.manager === user.$id);
+        setTeamMembers(myTeam);
+      } else {
+        // Admin sees all users
+        setTeamMembers(users);
       }
-    };
-
-    fetchTeamData();
+    } catch (error) {
+      console.error('Error fetching team data:', error);
+    } finally {
+      setIsLoading(false);
+    }
   }, [user]);
+
+  // Silent refresh without loading spinner (for real-time fallback)
+  const silentRefreshTeamData = useCallback(async () => {
+    if (!user || user.role === 'EMPLOYEE') return;
+
+    try {
+      console.log('Team: Silent refresh triggered');
+      
+      const users = await userService.getAllUsers();
+      setAllUsers(users);
+      
+      if (user.role === 'MANAGER') {
+        const myTeam = users.filter((u: User) => u.manager === user.$id);
+        setTeamMembers(myTeam);
+      } else {
+        setTeamMembers(users);
+      }
+    } catch (error) {
+      console.error('Error in silent refresh:', error);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchTeamData();
+  }, [fetchTeamData]);
+
+  // Real-time subscriptions for team/user updates
+  useEffect(() => {
+    if (!user || user.role === 'EMPLOYEE') return;
+
+    console.log('Setting up real-time subscriptions for team management...');
+    
+    const unsubscribe = client.subscribe(
+      [
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.USERS}.documents`,
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: any) => {
+        console.log('Team management real-time update received:', response);
+        
+        const events = response.events || [];
+        const payload = response.payload;
+        
+        // Check for specific event types with more robust pattern matching
+        const hasCreateEvent = events.some((event: string) => 
+          event.includes('.create') || event.includes('documents.create')
+        );
+        const hasUpdateEvent = events.some((event: string) => 
+          event.includes('.update') || event.includes('documents.update')
+        );
+        const hasDeleteEvent = events.some((event: string) => 
+          event.includes('.delete') || event.includes('documents.delete')
+        );
+        
+        console.log('Team event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+
+        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          console.log(`Processing ${eventType} event for instant team update...`, payload);
+          
+          try {
+            if (hasCreateEvent || hasUpdateEvent) {
+              // For CREATE/UPDATE: Update users directly
+              const newUser: User = {
+                $id: payload.$id,
+                firstName: payload.firstName,
+                lastName: payload.lastName,
+                email: payload.email,
+                role: payload.role,
+                manager: payload.manager || '',
+                isActive: payload.isActive ?? true,
+                createdAt: payload.createdAt || new Date().toISOString(),
+                updatedAt: payload.updatedAt || new Date().toISOString(),
+                $createdAt: payload.$createdAt || new Date().toISOString(),
+                $updatedAt: payload.$updatedAt || new Date().toISOString()
+              };
+
+              // Update allUsers
+              setAllUsers(prevUsers => {
+                const filteredUsers = prevUsers.filter(u => u.$id !== payload.$id);
+                console.log(`Instantly ${eventType === 'CREATE' ? 'added' : 'updated'} user:`, payload.firstName);
+                return [...filteredUsers, newUser];
+              });
+
+              // Update teamMembers based on role
+              if (user.role === 'MANAGER') {
+                setTeamMembers(prevMembers => {
+                  const filteredMembers = prevMembers.filter(u => u.$id !== payload.$id);
+                  if (newUser.manager === user.$id) {
+                    return [...filteredMembers, newUser];
+                  }
+                  return filteredMembers;
+                });
+              } else {
+                setTeamMembers(prevMembers => {
+                  const filteredMembers = prevMembers.filter(u => u.$id !== payload.$id);
+                  return [...filteredMembers, newUser];
+                });
+              }
+            } else if (hasDeleteEvent) {
+              // For DELETE: Remove user directly
+              setAllUsers(prevUsers => {
+                const filtered = prevUsers.filter(u => u.$id !== payload.$id);
+                console.log('Instantly removed user');
+                return filtered;
+              });
+              
+              setTeamMembers(prevMembers => {
+                const filtered = prevMembers.filter(u => u.$id !== payload.$id);
+                return filtered;
+              });
+            }
+            
+            // Show toast notification
+            const eventTypeText = hasCreateEvent ? 'added' : hasUpdateEvent ? 'updated' : 'removed';
+            toast({
+              title: "Team Updated",
+              description: `Team member ${eventTypeText} instantly`,
+              duration: 2000,
+            });
+            
+          } catch (error) {
+            console.error('Error in instant team update, falling back to silent refresh:', error);
+            // Fallback to silent refresh only if instant update fails
+            setTimeout(() => {
+              silentRefreshTeamData();
+            }, 100);
+          }
+        }
+      }
+    );
+
+    return () => {
+      console.log('Cleaning up team management real-time subscriptions...');
+      unsubscribe();
+    };
+  }, [user, toast, silentRefreshTeamData]);
 
   const handleAddTeamMember = async () => {
     if (!newMemberData.firstName || !newMemberData.lastName || !newMemberData.email || !newMemberData.password) return;

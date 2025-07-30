@@ -256,6 +256,133 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   }, [userId, userRole, user]);
+
+  // Silent refresh without loading spinner (for real-time fallback)
+  const silentRefreshDashboard = useCallback(async () => {
+    if (!userId || !userRole) return;
+    
+    try {
+      console.log('Dashboard: Silent refresh triggered');
+      
+      // Parallel data fetching for better performance
+      const today = new Date().toISOString().split('T')[0];
+      const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      // Handle UPPERCASE roles from Appwrite
+      const normalizedUserRole = userRole?.toUpperCase();
+      const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
+
+      const [
+        allUsers,
+        allManagersList,
+        todayShifts,
+        upcomingShifts,
+        allLeaveRequests,
+        allSwapRequests,
+      ] = await Promise.all([
+        isManagerOrAdmin ? userService.getAllUsers() : [],
+        userService.getManagers(),
+        shiftService.getShiftsByDateRange(today, today),
+        shiftService.getShiftsByDateRange(today, nextWeek),
+        isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
+        isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
+      ]);
+
+      // Filter and process data
+      const filteredUsers = allUsers.filter((u: User) => u.role !== 'ADMIN');
+      const filteredLeaveRequests = isManagerOrAdmin 
+        ? allLeaveRequests 
+        : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
+      const filteredSwapRequests = isManagerOrAdmin 
+        ? allSwapRequests 
+        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
+
+      // Build team members list with user names
+      const userMap = new Map(allUsers.map((u: User) => [u.$id, u]));
+      
+      // Calculate dashboard stats
+      const dashboardStats: DashboardStats = {
+        totalEmployees: filteredUsers.length,
+        todayShifts: todayShifts.length,
+        pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
+        pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
+        upcomingShifts: upcomingShifts.length,
+      };
+
+      // Build pending approvals list
+      const pendingApprovalsList: DashboardApprovalRequest[] = [];
+      
+      if (isManagerOrAdmin) {
+        filteredLeaveRequests
+          .filter((lr: LeaveRequest) => lr.status === 'PENDING')
+          .forEach((lr: LeaveRequest) => {
+            const employee = userMap.get(lr.userId) as User;
+            if (employee) {
+              pendingApprovalsList.push({
+                ...lr,
+                _type: 'leave',
+                _employeeName: `${employee.firstName} ${employee.lastName}`,
+              });
+            }
+          });
+
+        filteredSwapRequests
+          .filter((sr: SwapRequest) => sr.status === 'PENDING')
+          .forEach((sr: SwapRequest) => {
+            const requester = userMap.get(sr.requesterUserId) as User;
+            if (requester) {
+              pendingApprovalsList.push({
+                ...sr,
+                _type: 'swap',
+                _employeeName: `${requester.firstName} ${requester.lastName}`,
+              });
+            }
+          });
+      } else {
+        filteredLeaveRequests
+          .filter((lr: LeaveRequest) => lr.status === 'PENDING')
+          .forEach((lr: LeaveRequest) => {
+            pendingApprovalsList.push({
+              ...lr,
+              _type: 'leave',
+              _employeeName: `${user.firstName} ${user.lastName}`,
+            });
+          });
+
+        filteredSwapRequests
+          .filter((sr: SwapRequest) => sr.status === 'PENDING')
+          .forEach((sr: SwapRequest) => {
+            pendingApprovalsList.push({
+              ...sr,
+              _type: 'swap',
+              _employeeName: `${user.firstName} ${user.lastName}`,
+            });
+          });
+      }
+
+      // Build today's schedule
+      const todayScheduleList = todayShifts.map((shift: Shift) => {
+        const shiftUser = userMap.get(shift.userId) as User;
+        return {
+          $id: shift.$id,
+          userId: shift.userId,
+          date: shift.date,
+          onCallRole: shift.onCallRole,
+          status: shift.status,
+          employeeName: shiftUser ? `${shiftUser.firstName} ${shiftUser.lastName}` : 'Unknown',
+        };
+      });
+
+      // Update all state
+      setStats(dashboardStats);
+      setPendingApprovals(pendingApprovalsList);
+      setTodaySchedule(todayScheduleList);
+      setTeamMembers(filteredUsers);
+      
+    } catch (error) {
+      console.error('Error in silent refresh:', error);
+    }
+  }, [userId, userRole, user]);
   
   // Initial data fetch
   useEffect(() => {
@@ -319,11 +446,11 @@ export default function DashboardPage() {
         }));
       }
     } catch (error) {
-      console.error('Error in handleShiftUpdate, falling back to full refresh:', error);
-      // Fallback to full refresh if individual update fails
-      await fetchDashboardData();
+      console.error('Error in handleShiftUpdate, falling back to silent refresh:', error);
+      // Fallback to silent refresh if individual update fails
+      await silentRefreshDashboard();
     }
-  }, [fetchDashboardData]);
+  }, [silentRefreshDashboard]);
 
   const handleLeaveUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {
@@ -368,10 +495,10 @@ export default function DashboardPage() {
         }));
       }
     } catch (error) {
-      console.error('Error in handleLeaveUpdate, falling back to full refresh:', error);
-      await fetchDashboardData();
+      console.error('Error in handleLeaveUpdate, falling back to silent refresh:', error);
+      await silentRefreshDashboard();
     }
-  }, [userRole, fetchDashboardData]);
+  }, [userRole, silentRefreshDashboard]);
 
   const handleSwapUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {
@@ -418,10 +545,10 @@ export default function DashboardPage() {
         }));
       }
     } catch (error) {
-      console.error('Error in handleSwapUpdate, falling back to full refresh:', error);
-      await fetchDashboardData();
+      console.error('Error in handleSwapUpdate, falling back to silent refresh:', error);
+      await silentRefreshDashboard();
     }
-  }, [userRole, fetchDashboardData]);
+  }, [userRole, silentRefreshDashboard]);
 
   // Real-time subscriptions for dashboard updates
   useEffect(() => {

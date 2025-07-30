@@ -63,6 +63,31 @@ export default function SwapsPage() {
     }
   }, [user]);
 
+  // Silent refresh without loading spinner (for real-time fallback)
+  const silentRefreshSwapData = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      console.log('Swaps: Silent refresh triggered');
+      
+      let requests: SwapRequest[] = [];
+      let users: UserType[] = [];
+
+      if (user.role === 'EMPLOYEE') {
+        requests = await swapService.getSwapRequestsByUser(user.$id);
+      } else {
+        requests = await swapService.getAllSwapRequests();
+        users = await userService.getAllUsers();
+      }
+
+      setSwapRequests(requests);
+      setTeamMembers(users);
+      
+    } catch (error) {
+      console.error('Error in silent refresh:', error);
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchSwapData();
   }, [fetchSwapData]);
@@ -77,7 +102,7 @@ export default function SwapsPage() {
     setFilteredRequests(filtered);
   }, [swapRequests, filterStatus]);
 
-  // Real-time subscriptions for swap requests
+  // Real-time subscriptions for swap requests with instant updates
   useEffect(() => {
     if (!user) return;
 
@@ -88,31 +113,83 @@ export default function SwapsPage() {
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SWAP_REQUESTS}.documents`,
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
       ],
-      (response: { events: string[]; payload?: unknown }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: any) => {
         console.log('Swap requests real-time update received:', response);
         
-        // Handle different types of events
         const events = response.events || [];
-        const shouldRefresh = events.some((event: string) => 
-          event.includes('documents.create') ||
-          event.includes('documents.update') ||
-          event.includes('documents.delete')
+        const payload = response.payload;
+        
+        // Check for specific event types with more robust pattern matching
+        const hasCreateEvent = events.some((event: string) => 
+          event.includes('.create') || event.includes('documents.create')
         );
+        const hasUpdateEvent = events.some((event: string) => 
+          event.includes('.update') || event.includes('documents.update')
+        );
+        const hasDeleteEvent = events.some((event: string) => 
+          event.includes('.delete') || event.includes('documents.delete')
+        );
+        
+        console.log('Swap event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
 
-        if (shouldRefresh) {
-          console.log('Refreshing swap requests data due to real-time update...');
+        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          console.log(`Processing ${eventType} event for instant swap update...`, payload);
           
-          // Show a subtle notification that data is being updated
-          toast({
-            title: "Swap Requests Updated",
-            description: "Swap request data has been updated.",
-            duration: 2000,
-          });
-          
-          // Add a small delay to ensure the database has been updated
-          setTimeout(() => {
-            fetchSwapData();
-          }, 300);
+          try {
+            // Handle swap request updates
+            if (events.some((e: string) => e.includes('swap'))) {
+              if (hasCreateEvent || hasUpdateEvent) {
+                // For CREATE/UPDATE: Update swap requests directly
+                setSwapRequests(prevRequests => {
+                  const filteredRequests = prevRequests.filter(sr => sr.$id !== payload.$id);
+                  if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
+                    const newRequest: SwapRequest = {
+                      $id: payload.$id,
+                      requesterUserId: payload.requesterUserId,
+                      targetUserId: payload.targetUserId || '',
+                      myShiftId: payload.myShiftId,
+                      theirShiftId: payload.theirShiftId || '',
+                      reason: payload.reason,
+                      status: payload.status || 'PENDING',
+                      managerComments: payload.managerComments || '',
+                      createdAt: payload.createdAt || new Date().toISOString(),
+                      updatedAt: payload.updatedAt || new Date().toISOString(),
+                      $createdAt: payload.$createdAt || new Date().toISOString(),
+                      $updatedAt: payload.$updatedAt || new Date().toISOString()
+                    };
+                    console.log(`Instantly ${eventType === 'CREATE' ? 'added' : 'updated'} swap request`);
+                    return [...filteredRequests, newRequest];
+                  }
+                  return filteredRequests;
+                });
+              } else if (hasDeleteEvent) {
+                // For DELETE: Remove swap request directly
+                setSwapRequests(prevRequests => {
+                  const filtered = prevRequests.filter(sr => sr.$id !== payload.$id);
+                  console.log('Instantly removed swap request');
+                  return filtered;
+                });
+              }
+            }
+            
+            // Show toast notification
+            const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+            const collection = events[0]?.includes('swap') ? 'Swap request' : 'Related data';
+            toast({
+              title: "Swap Requests Updated", 
+              description: `${collection} ${eventTypeText} instantly`,
+              duration: 2000,
+            });
+            
+          } catch (error) {
+            console.error('Error in instant swap update, falling back to silent refresh:', error);
+            // Fallback to silent refresh only if instant update fails
+            setTimeout(() => {
+              silentRefreshSwapData();
+            }, 100);
+          }
         }
       }
     );
@@ -121,7 +198,7 @@ export default function SwapsPage() {
       console.log('Cleaning up swap requests real-time subscriptions...');
       unsubscribe();
     };
-  }, [user, fetchSwapData, toast]);
+  }, [user, toast, silentRefreshSwapData]);
 
   const handleSubmitSwapRequest = async () => {
     if (!user || !newSwapRequest.myShiftId || !newSwapRequest.reason) return;
