@@ -137,6 +137,24 @@ export default function DashboardPage() {
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+      // Create proper date ranges for querying (add time components)
+      const todayStart = `${today}T00:00:00.000Z`;
+      const todayEnd = `${today}T23:59:59.999Z`;
+      const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
+      const nextWeekEnd = `${nextWeek}T23:59:59.999Z`;
+
+      console.log('📅 Dashboard data fetch - Date calculations:', { 
+        today, 
+        tomorrow, 
+        nextWeek,
+        todayStart,
+        todayEnd,
+        tomorrowStart,
+        nextWeekEnd,
+        currentDate: new Date().toString(),
+        currentUTC: new Date().toISOString()
+      });
+
       // Handle UPPERCASE roles from Appwrite
       // Use the component-level isManagerOrAdmin variable
 
@@ -148,8 +166,8 @@ export default function DashboardPage() {
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
-        shiftService.getShiftsByDateRange(today, today), // Keep today shifts for schedule display
-        shiftService.getShiftsByDateRange(tomorrow, nextWeek), // Exclude today from upcoming shifts
+        shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
+        shiftService.getShiftsByDateRange(tomorrowStart, nextWeekEnd), // Exclude today from upcoming shifts
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
@@ -236,6 +254,13 @@ export default function DashboardPage() {
       
 
       // Build today's schedule with employee names
+      console.log('📋 Today shifts fetched:', todayShifts.map(s => ({ 
+        id: s.$id, 
+        date: s.date, 
+        onCallRole: s.onCallRole, 
+        userId: s.userId 
+      })));
+      
       const todayScheduleWithNames: DashboardShift[] = todayShifts.map((shift: Shift) => {
         const employee = userMap.get(shift.userId) as User;
         return {
@@ -243,6 +268,13 @@ export default function DashboardPage() {
           _employeeName: employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown Employee',
         };
       });
+
+      console.log('📋 Today schedule with names:', todayScheduleWithNames.map(s => ({ 
+        id: s.$id, 
+        role: s.onCallRole, 
+        name: s._employeeName,
+        date: s.date
+      })));
 
       // Set all the state
       setStats(dashboardStats);
@@ -290,6 +322,18 @@ export default function DashboardPage() {
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+      // Create proper date ranges for querying (add time components)
+      const todayStart = `${today}T00:00:00.000Z`;
+      const todayEnd = `${today}T23:59:59.999Z`;
+      const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
+      const nextWeekEnd = `${nextWeek}T23:59:59.999Z`;
+
+      console.log('📅 Silent refresh - Date calculations:', { 
+        today, 
+        todayStart, 
+        todayEnd 
+      });
+
       // Handle UPPERCASE roles from Appwrite
       // Use the component-level isManagerOrAdmin variable
 
@@ -301,8 +345,8 @@ export default function DashboardPage() {
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
-        shiftService.getShiftsByDateRange(today, today),
-        shiftService.getShiftsByDateRange(tomorrow, nextWeek), // Exclude today from upcoming shifts
+        shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
+        shiftService.getShiftsByDateRange(tomorrowStart, nextWeekEnd), // Exclude today from upcoming shifts
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
@@ -382,6 +426,13 @@ export default function DashboardPage() {
       }
 
       // Build today's schedule
+      console.log('📋 Silent refresh - Today shifts fetched:', todayShifts.map(s => ({ 
+        id: s.$id, 
+        date: s.date, 
+        onCallRole: s.onCallRole, 
+        userId: s.userId 
+      })));
+      
       const todayScheduleList: DashboardShift[] = todayShifts.map((shift: Shift) => {
         const shiftUser = userMap.get(shift.userId) as User;
         return {
@@ -389,6 +440,13 @@ export default function DashboardPage() {
           _employeeName: shiftUser ? `${shiftUser.firstName} ${shiftUser.lastName}` : 'Unknown',
         };
       });
+
+      console.log('📋 Silent refresh - Today schedule list:', todayScheduleList.map(s => ({ 
+        id: s.$id, 
+        role: s.onCallRole, 
+        name: s._employeeName,
+        date: s.date
+      })));
 
       // Update all state
       setStats(dashboardStats);
@@ -411,6 +469,16 @@ export default function DashboardPage() {
     const today = new Date().toISOString().split('T')[0];
     const shiftDate = typeof payload?.date === 'string' ? payload.date.split('T')[0] : '';
     
+    console.log('📅 handleShiftUpdate:', { 
+      eventType, 
+      shiftId: payload.$id, 
+      shiftDate, 
+      today, 
+      isToday: shiftDate === today,
+      onCallRole: payload.onCallRole,
+      userId: payload.userId
+    });
+    
     try {
       if (eventType === 'CREATE' || eventType === 'UPDATE') {
         // Get user info for the shift
@@ -419,7 +487,11 @@ export default function DashboardPage() {
         // Update today's schedule if it's for today
         if (shiftDate === today) {
           setTodaySchedule(prev => {
-            const filtered = prev.filter(s => s.$id !== payload.$id);
+            console.log('📋 Current todaySchedule before update:', prev.map(s => ({ id: s.$id, role: s.onCallRole, name: s._employeeName })));
+            
+            // Only filter out the specific shift being updated (by $id)
+            const filtered = prev.filter(s => s.$id !== (payload.$id as string));
+            
             if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
               const newShift: DashboardShift = {
                 $id: payload.$id as string,
@@ -436,8 +508,21 @@ export default function DashboardPage() {
                 $createdAt: payload.$createdAt as string || new Date().toISOString(),
                 $updatedAt: payload.$updatedAt as string || new Date().toISOString()
               };
-              return [...filtered, newShift];
+              
+              // Add the new/updated shift and sort by role for consistent display
+              const updatedSchedule = [...filtered, newShift];
+              const sortedSchedule = updatedSchedule.sort((a, b) => {
+                // Sort PRIMARY first, then BACKUP
+                if (a.onCallRole === 'PRIMARY' && b.onCallRole === 'BACKUP') return -1;
+                if (a.onCallRole === 'BACKUP' && b.onCallRole === 'PRIMARY') return 1;
+                return 0;
+              });
+              
+              console.log('📋 Updated todaySchedule after processing:', sortedSchedule.map(s => ({ id: s.$id, role: s.onCallRole, name: s._employeeName })));
+              return sortedSchedule;
             }
+            
+            console.log('📋 Filtered todaySchedule (no new shift added):', filtered.map(s => ({ id: s.$id, role: s.onCallRole, name: s._employeeName })));
             return filtered;
           });
         }
@@ -768,17 +853,20 @@ export default function DashboardPage() {
         const events = response.events || [];
         const payload = response.payload;
         
-        // Create a unique identifier for this event
-        const eventKey = `${payload?.$id}-${events[0]}-${payload?.$updatedAt}`;
+        // Create a unique identifier for this event - include more specificity to avoid blocking legitimate separate events
+        const eventKey = `${payload?.$id}-${events[0]}-${payload?.$updatedAt}-${payload?.onCallRole || 'unknown'}`;
         
-        // Skip if we've already processed this exact event
-        if (processedEvents.has(eventKey)) {
-          console.log('🚫 Skipping duplicate event:', eventKey);
+        // Skip if we've already processed this exact event (only check recent events within 100ms)
+        const now = Date.now();
+        const recentEventKey = `${eventKey}-${Math.floor(now / 100)}`; // Group events within 100ms windows
+        
+        if (processedEvents.has(recentEventKey)) {
+          console.log('🚫 Skipping duplicate event within 100ms:', recentEventKey);
           return;
         }
         
         // Add to processed events and cleanup old entries (keep only last 100)
-        processedEvents.add(eventKey);
+        processedEvents.add(recentEventKey);
         if (processedEvents.size > 100) {
           const oldEvents = Array.from(processedEvents).slice(0, 50);
           oldEvents.forEach(event => processedEvents.delete(event));
