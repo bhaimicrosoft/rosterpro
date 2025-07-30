@@ -514,7 +514,7 @@ export default function DashboardPage() {
                   Schedule Shift
                 </Button>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/team'}
+                  onClick={() => window.location.href = '/team'}
                   size="sm"
                   variant="outline"
                   className="gap-2"
@@ -529,7 +529,7 @@ export default function DashboardPage() {
             {!isManagerOrAdmin && (
               <>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/leaves'}
+                  onClick={() => window.location.href = '/leaves'}
                   size="sm"
                   className="gap-2 bg-green-600 hover:bg-green-700"
                 >
@@ -537,7 +537,7 @@ export default function DashboardPage() {
                   Request Leave
                 </Button>
                 <Button
-                  onClick={() => window.location.href = '/dashboard/swaps'}
+                  onClick={() => window.location.href = '/swaps'}
                   size="sm"
                   variant="outline"
                   className="gap-2"
@@ -668,7 +668,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/team'}
+                    onClick={() => window.location.href = '/team'}
                     className="w-full bg-green-600 hover:bg-green-700"
                     size="sm"
                   >
@@ -691,7 +691,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/leaves'}
+                    onClick={() => window.location.href = '/leaves'}
                     className="w-full bg-purple-600 hover:bg-purple-700"
                     size="sm"
                   >
@@ -714,7 +714,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/schedule'}
+                    onClick={() => window.location.href = '/schedule'}
                     className="w-full bg-orange-600 hover:bg-orange-700"
                     size="sm"
                   >
@@ -740,7 +740,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/leaves'}
+                    onClick={() => window.location.href = '/leaves'}
                     className="w-full bg-green-600 hover:bg-green-700"
                     size="sm"
                   >
@@ -763,7 +763,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/swaps'}
+                    onClick={() => window.location.href = '/swaps'}
                     className="w-full bg-blue-600 hover:bg-blue-700"
                     size="sm"
                   >
@@ -786,7 +786,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/schedule'}
+                    onClick={() => window.location.href = '/schedule'}
                     className="w-full bg-purple-600 hover:bg-purple-700"
                     size="sm"
                   >
@@ -809,7 +809,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <Button 
-                    onClick={() => window.location.href = '/dashboard/leaves'}
+                    onClick={() => window.location.href = '/leaves'}
                     className="w-full bg-orange-600 hover:bg-orange-700"
                     size="sm"
                   >
