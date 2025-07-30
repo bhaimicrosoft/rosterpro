@@ -333,14 +333,11 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       const endDate = weekDates[6].date;
       
       
-      // Fetch shifts and users
+      // Fetch shifts and users data
       const [shiftsData, usersData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
-        userService.getAllUsers(), // Always fetch all users so employees can see full team schedule
+        userService.getAllUsers() // Always fetch all users so employees can see full team schedule
       ]);
-      
-      
-      
       
       // Create user map for quick lookup - handle both User and AuthUser types
       const userMap = new Map();
@@ -360,7 +357,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         return {
           ...day,
           primary: primaryShift ? userMap.get(primaryShift.userId) : undefined,
-          backup: backupShift ? userMap.get(backupShift.userId) : undefined,
+          backup: backupShift ? userMap.get(backupShift.userId) : undefined
         };
       });
       
@@ -385,7 +382,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       const startDate = weekDates[0].date;
       const endDate = weekDates[6].date;
       
-      // Fetch shifts and users
+      // Fetch shifts and users data
       const [shiftsData, usersData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
         userService.getAllUsers()
@@ -409,7 +406,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         return {
           ...day,
           primary: primaryShift ? userMap.get(primaryShift.userId) : undefined,
-          backup: backupShift ? userMap.get(backupShift.userId) : undefined,
+          backup: backupShift ? userMap.get(backupShift.userId) : undefined
         };
       });
       

@@ -304,6 +304,22 @@ export default function LeavesPage() {
     return diffDays;
   };
 
+  const formatDateRange = (startDate: string, endDate: string) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    const formatOptions: Intl.DateTimeFormatOptions = { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    };
+    
+    const formattedStart = start.toLocaleDateString('en-US', formatOptions);
+    const formattedEnd = end.toLocaleDateString('en-US', formatOptions);
+    
+    return `${formattedStart} to ${formattedEnd}`;
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'APPROVED': return 'bg-green-500';
@@ -524,7 +540,7 @@ export default function LeavesPage() {
                           <div className="space-y-2 flex-1 min-w-0">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                               <span className="font-semibold text-base sm:text-lg break-words">
-                                {request.startDate} to {request.endDate}
+                                {formatDateRange(request.startDate, request.endDate)}
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 <Badge className={`${getTypeColor(request.type)} border`}>
@@ -615,7 +631,7 @@ export default function LeavesPage() {
                           <div className="space-y-2 flex-1 min-w-0">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                               <span className="font-semibold text-base sm:text-lg break-words">
-                                {request.startDate} to {request.endDate}
+                                {formatDateRange(request.startDate, request.endDate)}
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 <Badge className={`${getTypeColor(request.type)} border`}>

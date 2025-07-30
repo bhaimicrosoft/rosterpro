@@ -16,7 +16,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { shiftService, userService } from '@/lib/appwrite/database';
-import { Shift, User } from '@/types';
+import { leaveService } from '@/lib/appwrite/leave-service';
+import { Shift, User, EmployeeOnLeave, WeeklyLeaveData, LeaveType } from '@/types';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 interface CalendarDay {
@@ -24,6 +25,7 @@ interface CalendarDay {
   day: number;
   isCurrentMonth: boolean;
   shifts: { primary?: User; backup?: User };
+  employeesOnLeave?: EmployeeOnLeave[];
 }
 
 export default function SchedulePage() {
@@ -34,6 +36,7 @@ export default function SchedulePage() {
   const [calendar, setCalendar] = useState<CalendarDay[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [weeklyLeaveData, setWeeklyLeaveData] = useState<WeeklyLeaveData>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
 
@@ -43,6 +46,37 @@ export default function SchedulePage() {
   ];
 
   const dayNames = useMemo(() => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], []);
+
+  // Utility functions for leave display
+  const getLeaveTypeColor = (leaveType: LeaveType) => {
+    switch (leaveType) {
+      case 'PAID':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'SICK':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'COMP_OFF':
+        return 'bg-green-100 text-green-800 border-green-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getLeaveTypeIcon = (leaveType: LeaveType) => {
+    switch (leaveType) {
+      case 'PAID':
+        return '🏖️';
+      case 'SICK':
+        return '🤒';
+      case 'COMP_OFF':
+        return '⚖️';
+      default:
+        return '📅';
+    }
+  };
+
+  const formatDisplayName = (firstName: string, lastName: string) => {
+    return `${firstName} ${lastName}`;
+  };
 
   const generateCalendar = useCallback(() => {
     const year = currentDate.getFullYear();
@@ -152,12 +186,13 @@ export default function SchedulePage() {
 
       return {
         ...day,
-        shifts: shiftAssignments
+        shifts: shiftAssignments,
+        employeesOnLeave: weeklyLeaveData[day.date] || []
       };
     });
 
     return result;
-  }, [allUsers]);
+  }, [allUsers, weeklyLeaveData]);
 
   const fetchScheduleData = useCallback(async () => {
     if (!user) return;
@@ -190,16 +225,54 @@ export default function SchedulePage() {
       }
 
       // Fetch data
-      const [shiftsData, usersData] = await Promise.all([
+      const [shiftsData, usersData, leavesData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDateStr, endDateStr),
-        userService.getAllUsers() // Always fetch all users so employees can see full team schedule
+        userService.getAllUsers(), // Always fetch all users so employees can see full team schedule
+        leaveService.getApprovedLeavesByDateRange(startDateStr, endDateStr)
       ]);
 
       setShifts(shiftsData);
       setAllUsers(usersData as User[]);
 
-    } catch (error) {
+      // Build weekly leave data structure
+      const leaveDataMap: WeeklyLeaveData = {};
       
+      // Process each leave request
+      leavesData.forEach(leave => {
+        const user = usersData.find(u => u.$id === leave.userId);
+        if (!user) return;
+        
+        // Check each date in the leave range
+        const leaveStart = new Date(leave.startDate);
+        const leaveEnd = new Date(leave.endDate);
+        const currentDateLoop = new Date(leaveStart);
+        
+        while (currentDateLoop <= leaveEnd) {
+          const dateStr = currentDateLoop.toISOString().split('T')[0];
+          
+          if (!leaveDataMap[dateStr]) {
+            leaveDataMap[dateStr] = [];
+          }
+          
+          leaveDataMap[dateStr].push({
+            $id: `${leave.$id}-${dateStr}`,
+            userId: user.$id,
+            userName: formatDisplayName(user.firstName, user.lastName),
+            date: dateStr,
+            leaveType: leave.type,
+            leaveId: leave.$id,
+            startDate: leave.startDate,
+            endDate: leave.endDate
+          });
+          
+          currentDateLoop.setDate(currentDateLoop.getDate() + 1);
+        }
+      });
+      
+      setWeeklyLeaveData(leaveDataMap);
+
+    } catch (fetchError) {
+      console.error('❌ Schedule: Error fetching schedule data:', fetchError);
     }
   }, [user, currentDate, viewMode]);
 
@@ -237,16 +310,54 @@ export default function SchedulePage() {
       }
 
       // Fetch data
-      const [shiftsData, usersData] = await Promise.all([
+      const [shiftsData, usersData, leavesData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDateStr, endDateStr),
-        userService.getAllUsers()
+        userService.getAllUsers(),
+        leaveService.getApprovedLeavesByDateRange(startDateStr, endDateStr)
       ]);
 
       setShifts(shiftsData);
       setAllUsers(usersData as User[]);
+
+      // Build weekly leave data structure
+      const leaveDataMap: WeeklyLeaveData = {};
       
-    } catch (error) {
+      // Process each leave request
+      leavesData.forEach(leave => {
+        const user = usersData.find(u => u.$id === leave.userId);
+        if (!user) return;
+        
+        // Check each date in the leave range
+        const leaveStart = new Date(leave.startDate);
+        const leaveEnd = new Date(leave.endDate);
+        const currentDateLoop = new Date(leaveStart);
+        
+        while (currentDateLoop <= leaveEnd) {
+          const dateStr = currentDateLoop.toISOString().split('T')[0];
+          
+          if (!leaveDataMap[dateStr]) {
+            leaveDataMap[dateStr] = [];
+          }
+          
+          leaveDataMap[dateStr].push({
+            $id: `${leave.$id}-${dateStr}`,
+            userId: user.$id,
+            userName: formatDisplayName(user.firstName, user.lastName),
+            date: dateStr,
+            leaveType: leave.type,
+            leaveId: leave.$id,
+            startDate: leave.startDate,
+            endDate: leave.endDate
+          });
+          
+          currentDateLoop.setDate(currentDateLoop.getDate() + 1);
+        }
+      });
       
+      setWeeklyLeaveData(leaveDataMap);
+      
+    } catch (silentError) {
+      console.error('❌ Schedule: Error during silent refresh:', silentError);
     }
   }, [user, currentDate, viewMode]);
 
@@ -254,6 +365,14 @@ export default function SchedulePage() {
   const assignableUsers = useMemo(() => {
     return allUsers.filter(u => u.role === 'EMPLOYEE');
   }, [allUsers]);
+
+  // Get assignable users for a specific date (filtering out employees on leave)
+  const getAssignableUsersForDate = useCallback((date: string) => {
+    const employeesOnLeaveForDate = weeklyLeaveData[date] || [];
+    const employeeIdsOnLeave = employeesOnLeaveForDate.map(emp => emp.userId);
+    
+    return assignableUsers.filter(user => !employeeIdsOnLeave.includes(user.$id));
+  }, [assignableUsers, weeklyLeaveData]);
 
   // Separate useEffect for calendar regeneration when currentDate or viewMode changes
   useEffect(() => {
@@ -282,77 +401,103 @@ export default function SchedulePage() {
     const unsubscribe = client.subscribe(
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.LEAVES}.documents`,
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        
-        
         const events = response.events || [];
         const payload = response.payload;
         
+        console.log('📡 Schedule: Received real-time event:', { events, payload });
+        
         // Check for specific event types with more robust pattern matching
         const hasCreateEvent = events.some((event: string) => 
-          event.includes('.create') || event.includes('documents.create')
+          event.includes('.create') || 
+          event.includes('documents.create') ||
+          event.includes('.documents.*.create')
         );
         const hasUpdateEvent = events.some((event: string) => 
-          event.includes('.update') || event.includes('documents.update')
+          event.includes('.update') || 
+          event.includes('documents.update') ||
+          event.includes('.documents.*.update')
         );
         const hasDeleteEvent = events.some((event: string) => 
-          event.includes('.delete') || event.includes('documents.delete')
+          event.includes('.delete') || 
+          event.includes('documents.delete') ||
+          event.includes('.documents.*.delete')
         );
         
-        
+        // Check if this is a leave event
+        const isLeaveEvent = events.some((event: string) => 
+          event.includes(COLLECTIONS.LEAVES)
+        );
         
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
           
-          
           try {
-            if (hasCreateEvent || hasUpdateEvent) {
-              // For CREATE/UPDATE: Get user info and update shifts directly
-              const updatedUser = await userService.getUserById(payload.userId);
+            if (isLeaveEvent) {
+              // For leave events, refetch schedule data to update employee filtering and display
+              setTimeout(() => {
+                silentRefetchScheduleData();
+              }, 100);
               
-              setShifts(prevShifts => {
-                const filteredShifts = prevShifts.filter(s => s.$id !== payload.$id);
-                if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
-                  const newShift: Shift = {
-                    $id: payload.$id,
-                    userId: payload.userId,
-                    date: payload.date,
-                    startTime: payload.startTime,
-                    endTime: payload.endTime,
-                    type: payload.type,
-                    onCallRole: payload.onCallRole,
-                    status: payload.status || 'SCHEDULED',
-                    createdAt: payload.createdAt || new Date().toISOString(),
-                    updatedAt: payload.updatedAt || new Date().toISOString(),
-                    $createdAt: payload.$createdAt || new Date().toISOString(),
-                    $updatedAt: payload.$updatedAt || new Date().toISOString()
-                  };
-                  
-                  return [...filteredShifts, newShift];
-                }
-                return filteredShifts;
+              // Show toast notification for leave changes
+              const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'cancelled';
+              toast({
+                title: "Leave Status Updated",
+                description: `Leave request ${eventTypeText} - schedule updated`,
+                duration: 2000,
               });
-            } else if (hasDeleteEvent) {
-              // For DELETE: Remove shift directly
-              setShifts(prevShifts => {
-                const filtered = prevShifts.filter(s => s.$id !== payload.$id);
+            } else {
+              // Handle shift events
+              if (hasCreateEvent || hasUpdateEvent) {
+                // For CREATE/UPDATE: Get user info and update shifts directly
+                const updatedUser = await userService.getUserById(payload.userId);
+                console.log('✅ Schedule: User data for shift update:', updatedUser?.firstName);
                 
-                return filtered;
+                setShifts(prevShifts => {
+                  const filteredShifts = prevShifts.filter(s => s.$id !== payload.$id);
+                  if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
+                    const newShift: Shift = {
+                      $id: payload.$id,
+                      userId: payload.userId,
+                      date: payload.date,
+                      startTime: payload.startTime,
+                      endTime: payload.endTime,
+                      type: payload.type,
+                      onCallRole: payload.onCallRole,
+                      status: payload.status || 'SCHEDULED',
+                      createdAt: payload.createdAt || new Date().toISOString(),
+                      updatedAt: payload.updatedAt || new Date().toISOString(),
+                      $createdAt: payload.$createdAt || new Date().toISOString(),
+                      $updatedAt: payload.$updatedAt || new Date().toISOString()
+                    };
+                    
+                    return [...filteredShifts, newShift];
+                  }
+                  return filteredShifts;
+                });
+              } else if (hasDeleteEvent) {
+                // For DELETE: Remove shift directly
+                setShifts(prevShifts => {
+                  const filtered = prevShifts.filter(s => s.$id !== payload.$id);
+                  
+                  return filtered;
+                });
+              }
+              
+              // Show toast notification for shift events
+              const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+              toast({
+                title: "Schedule Updated",
+                description: `Assignment ${eventTypeText} instantly`,
+                duration: 2000,
               });
             }
             
-            // Show toast notification
-            const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
-            toast({
-              title: "Schedule Updated",
-              description: `Assignment ${eventTypeText} instantly`,
-              duration: 2000,
-            });
-            
-          } catch (error) {
-            
+          } catch (updateError) {
+            console.error('❌ Schedule: Error processing real-time event:', updateError);
             // Fallback to silent refetch only if instant update fails
             setTimeout(() => {
               silentRefetchScheduleData();
@@ -496,8 +641,8 @@ export default function SchedulePage() {
         title: "Data Refreshed",
         description: "Schedule data has been updated successfully.",
       });
-    } catch (error) {
-      
+    } catch (refreshError) {
+      console.error('❌ Schedule: Error during silent refresh:', refreshError);
       toast({
         variant: "destructive",
         title: "Refresh Failed",
@@ -551,28 +696,7 @@ export default function SchedulePage() {
               )}
               Refresh
             </Button>
-            
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-muted rounded-lg p-1">
-              <Button
-                variant={viewMode === 'week' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('week')}
-                className="h-8 px-3 text-xs"
-              >
-                <Grid3X3 className="h-3 w-3 mr-1" />
-                Week View
-              </Button>
-              <Button
-                variant={viewMode === 'month' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('month')}
-                className="h-8 px-3 text-xs"
-              >
-                <CalendarDays className="h-3 w-3 mr-1" />
-                Month View
-              </Button>
-            </div>
+          
           </div>
         </div>
 
@@ -738,7 +862,7 @@ export default function SchedulePage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="start" className="w-48">
                                   <DropdownMenuLabel>Change Primary</DropdownMenuLabel>
-                                  {assignableUsers.map((employee) => (
+                                  {getAssignableUsersForDate(day.date).map((employee) => (
                                     <DropdownMenuItem
                                       key={`primary-${employee.$id}`}
                                       onClick={() => assignEmployee(day.date, 'primary', employee.$id)}
@@ -789,7 +913,7 @@ export default function SchedulePage() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start" className="w-48">
                                 <DropdownMenuLabel>Assign Primary</DropdownMenuLabel>
-                                {assignableUsers.map((employee) => (
+                                {getAssignableUsersForDate(day.date).map((employee) => (
                                   <DropdownMenuItem
                                     key={`primary-${employee.$id}`}
                                     onClick={() => assignEmployee(day.date, 'primary', employee.$id)}
@@ -834,7 +958,7 @@ export default function SchedulePage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="start" className="w-48">
                                   <DropdownMenuLabel>Change Backup</DropdownMenuLabel>
-                                  {assignableUsers.map((employee) => (
+                                  {getAssignableUsersForDate(day.date).map((employee) => (
                                     <DropdownMenuItem
                                       key={`backup-${employee.$id}`}
                                       onClick={() => assignEmployee(day.date, 'backup', employee.$id)}
@@ -885,7 +1009,7 @@ export default function SchedulePage() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start" className="w-48">
                                 <DropdownMenuLabel>Assign Backup</DropdownMenuLabel>
-                                {assignableUsers.map((employee) => (
+                                {getAssignableUsersForDate(day.date).map((employee) => (
                                   <DropdownMenuItem
                                     key={`backup-${employee.$id}`}
                                     onClick={() => assignEmployee(day.date, 'backup', employee.$id)}
@@ -903,6 +1027,26 @@ export default function SchedulePage() {
                               <span className="sm:hidden">-</span>
                             </div>
                           )
+                        )}
+                        
+                        {/* Employees on Leave */}
+                        {day.employeesOnLeave && day.employeesOnLeave.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {day.employeesOnLeave.map((employeeOnLeave, index) => (
+                              <div key={index} className="text-xs flex items-center gap-1">
+                                <div 
+                                  className={`w-2 h-2 rounded-full ${getLeaveTypeColor(employeeOnLeave.leaveType)}`}
+                                  title={employeeOnLeave.leaveType}
+                                />
+                                <span className="text-gray-600 dark:text-gray-400 truncate">
+                                  {employeeOnLeave.userName}
+                                </span>
+                                <span className="text-gray-500 dark:text-gray-500 text-xs">
+                                  {getLeaveTypeIcon(employeeOnLeave.leaveType)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1031,7 +1175,7 @@ export default function SchedulePage() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="center" className="w-48">
                                       <DropdownMenuLabel className="text-xs">Change Primary</DropdownMenuLabel>
-                                      {assignableUsers.map((employee) => (
+                                      {getAssignableUsersForDate(dateString).map((employee) => (
                                         <DropdownMenuItem
                                           key={`primary-${employee.$id}`}
                                           onClick={() => assignEmployee(dateString, 'primary', employee.$id)}
@@ -1087,7 +1231,7 @@ export default function SchedulePage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="center" className="w-48">
                                   <DropdownMenuLabel className="text-xs">Assign Primary</DropdownMenuLabel>
-                                  {assignableUsers.map((employee) => (
+                                  {getAssignableUsersForDate(dateString).map((employee) => (
                                     <DropdownMenuItem
                                       key={`primary-${employee.$id}`}
                                       onClick={() => assignEmployee(dateString, 'primary', employee.$id)}
@@ -1134,7 +1278,7 @@ export default function SchedulePage() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="center" className="w-48">
                                       <DropdownMenuLabel className="text-xs">Change Backup</DropdownMenuLabel>
-                                      {assignableUsers.map((employee) => (
+                                      {getAssignableUsersForDate(dateString).map((employee) => (
                                         <DropdownMenuItem
                                           key={`backup-${employee.$id}`}
                                           onClick={() => assignEmployee(dateString, 'backup', employee.$id)}
@@ -1190,7 +1334,7 @@ export default function SchedulePage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="center" className="w-48">
                                   <DropdownMenuLabel className="text-xs">Assign Backup</DropdownMenuLabel>
-                                  {assignableUsers.map((employee) => (
+                                  {getAssignableUsersForDate(dateString).map((employee) => (
                                     <DropdownMenuItem
                                       key={`backup-${employee.$id}`}
                                       onClick={() => assignEmployee(dateString, 'backup', employee.$id)}
@@ -1209,6 +1353,29 @@ export default function SchedulePage() {
                             )
                           )}
                         </div>
+                        
+                        {/* Employees on Leave - Week View */}
+                        {weeklyLeaveData[dateString] && weeklyLeaveData[dateString].length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
+                            <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">On Leave</div>
+                            <div className="space-y-1">
+                              {weeklyLeaveData[dateString].map((employeeOnLeave, index) => (
+                                <div key={index} className="text-xs flex items-center gap-1">
+                                  <div 
+                                    className={`w-2 h-2 rounded-full ${getLeaveTypeColor(employeeOnLeave.leaveType)}`}
+                                    title={employeeOnLeave.leaveType}
+                                  />
+                                  <span className="text-gray-600 dark:text-gray-400 truncate">
+                                    {employeeOnLeave.userName}
+                                  </span>
+                                  <span className="text-gray-500 dark:text-gray-500 text-xs">
+                                    {getLeaveTypeIcon(employeeOnLeave.leaveType)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
