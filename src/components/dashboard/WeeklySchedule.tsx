@@ -58,21 +58,29 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
   }, []);
 
   const fetchWeeklyData = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      console.log('WeeklySchedule: No user found, skipping fetch');
+      return;
+    }
     
     try {
       setLoading(true);
+      console.log('WeeklySchedule: Starting fetch for user:', user.role, user.$id);
       
       // Get this week's date range
       const weekDates = getWeekDates();
       const startDate = weekDates[0].date;
       const endDate = weekDates[6].date;
+      console.log('WeeklySchedule: Date range:', startDate, 'to', endDate);
       
       // Fetch shifts and users
       const [shiftsData, usersData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
         user.role === 'MANAGER' || user.role === 'ADMIN' ? userService.getAllUsers() : [user as unknown as User]
       ]);
+      
+      console.log('WeeklySchedule: Fetched shifts:', shiftsData.length, 'users:', usersData.length);
+      console.log('WeeklySchedule: Shifts data:', shiftsData);
       
       // Create user map for quick lookup - handle both User and AuthUser types
       const userMap = new Map();
@@ -86,6 +94,8 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
           shift.date.split('T')[0] === day.date
         );
         
+        console.log(`WeeklySchedule: Day ${day.date} has ${dayShifts.length} shifts:`, dayShifts);
+        
         const primaryShift = dayShifts.find(s => s.onCallRole === 'PRIMARY');
         const backupShift = dayShifts.find(s => s.onCallRole === 'BACKUP');
         
@@ -96,9 +106,10 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
         };
       });
       
+      console.log('WeeklySchedule: Final schedule data:', scheduleData);
       setWeekSchedule(scheduleData);
     } catch (error) {
-      console.error('Error fetching weekly schedule:', error);
+      console.error('WeeklySchedule: Error fetching weekly schedule:', error);
     } finally {
       setLoading(false);
     }

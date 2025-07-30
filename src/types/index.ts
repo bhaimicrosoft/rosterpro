@@ -19,10 +19,15 @@ export interface Shift {
   $id: string;
   userId: string;
   date: string;
+  startTime?: string;
+  endTime?: string;
+  type?: string;
   onCallRole: 'PRIMARY' | 'BACKUP';
   status: 'SCHEDULED' | 'COMPLETED' | 'SWAPPED';
   createdAt: string;
   updatedAt: string;
+  $createdAt: string;
+  $updatedAt: string;
 }
 
 // Leave request types
@@ -80,6 +85,16 @@ export interface DashboardStats {
   pendingLeaveRequests: number;
   pendingSwapRequests: number;
   upcomingShifts: number;
+}
+
+// Dashboard helper types
+export interface DashboardApprovalRequest extends Partial<LeaveRequest>, Partial<SwapRequest> {
+  _type: 'leave' | 'swap';
+  _employeeName: string;
+}
+
+export interface DashboardShift extends Shift {
+  _employeeName: string;
 }
 
 // Form types

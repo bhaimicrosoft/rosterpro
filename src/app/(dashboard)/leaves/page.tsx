@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Calendar, Clock, Plus, CheckCircle, XCircle, Filter, Download, CalendarDays, User, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, Plus, CheckCircle, XCircle, Filter, Download, CalendarDays, User, AlertCircle, RefreshCw } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,13 +15,17 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { LeaveRequest, User as UserType } from '@/types';
 import { leaveService, userService } from '@/lib/appwrite/database';
+import { useToast } from '@/hooks/use-toast';
+import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 export default function LeavesPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<LeaveRequest[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
@@ -62,6 +66,73 @@ export default function LeavesPage() {
   useEffect(() => {
     fetchLeaveData();
   }, [fetchLeaveData]);
+
+  // Real-time subscriptions for leave requests
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('Setting up real-time subscriptions for leave requests...');
+    
+    const unsubscribe = client.subscribe(
+      [
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.LEAVES}.documents`,
+      ],
+      (response: { events: string[]; payload?: unknown }) => {
+        console.log('Leave requests real-time update received:', response);
+        
+        // Handle different types of events
+        const events = response.events || [];
+        const shouldRefresh = events.some((event: string) => 
+          event.includes('documents.create') ||
+          event.includes('documents.update') ||
+          event.includes('documents.delete')
+        );
+
+        if (shouldRefresh) {
+          console.log('Refreshing leave requests data due to real-time update...');
+          
+          // Show a subtle notification that data is being updated
+          toast({
+            title: "Leave Requests Updated",
+            description: "Leave request data has been updated.",
+            duration: 2000,
+          });
+          
+          // Add a small delay to ensure the database has been updated
+          setTimeout(() => {
+            fetchLeaveData();
+          }, 300);
+        }
+      }
+    );
+
+    return () => {
+      console.log('Cleaning up leave requests real-time subscriptions...');
+      unsubscribe();
+    };
+  }, [user, fetchLeaveData, toast]);
+
+  const refreshLeaveData = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchLeaveData();
+      toast({
+        title: "Data Refreshed",
+        description: "Leave requests have been updated successfully.",
+        duration: 2000,
+      });
+    } catch (error) {
+      console.error('Error refreshing leave data:', error);
+      toast({
+        title: "Refresh Failed",
+        description: "Failed to refresh leave data. Please try again.",
+        variant: "destructive",
+        duration: 3000,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     let filtered = leaveRequests;
@@ -206,6 +277,15 @@ export default function LeavesPage() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
+            <Button 
+              variant="outline" 
+              onClick={refreshLeaveData}
+              disabled={isRefreshing}
+              className="w-full sm:w-auto"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
             <Button variant="outline" onClick={exportLeaveData} className="w-full sm:w-auto">
               <Download className="h-4 w-4 mr-2" />
               Export

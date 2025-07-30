@@ -13,9 +13,12 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { SwapRequest, Shift, User as UserType } from '@/types';
 import { swapService, shiftService, userService } from '@/lib/appwrite/database';
+import { useToast } from '@/hooks/use-toast';
+import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 export default function SwapsPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<SwapRequest[]>([]);
   const [myShifts, setMyShifts] = useState<Shift[]>([]);
@@ -73,6 +76,52 @@ export default function SwapsPage() {
     
     setFilteredRequests(filtered);
   }, [swapRequests, filterStatus]);
+
+  // Real-time subscriptions for swap requests
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('Setting up real-time subscriptions for swap requests...');
+    
+    const unsubscribe = client.subscribe(
+      [
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.SWAP_REQUESTS}.documents`,
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
+      ],
+      (response: { events: string[]; payload?: unknown }) => {
+        console.log('Swap requests real-time update received:', response);
+        
+        // Handle different types of events
+        const events = response.events || [];
+        const shouldRefresh = events.some((event: string) => 
+          event.includes('documents.create') ||
+          event.includes('documents.update') ||
+          event.includes('documents.delete')
+        );
+
+        if (shouldRefresh) {
+          console.log('Refreshing swap requests data due to real-time update...');
+          
+          // Show a subtle notification that data is being updated
+          toast({
+            title: "Swap Requests Updated",
+            description: "Swap request data has been updated.",
+            duration: 2000,
+          });
+          
+          // Add a small delay to ensure the database has been updated
+          setTimeout(() => {
+            fetchSwapData();
+          }, 300);
+        }
+      }
+    );
+
+    return () => {
+      console.log('Cleaning up swap requests real-time subscriptions...');
+      unsubscribe();
+    };
+  }, [user, fetchSwapData, toast]);
 
   const handleSubmitSwapRequest = async () => {
     if (!user || !newSwapRequest.myShiftId || !newSwapRequest.reason) return;
