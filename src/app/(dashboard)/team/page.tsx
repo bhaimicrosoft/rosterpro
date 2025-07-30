@@ -150,11 +150,12 @@ export default function TeamPage() {
                 firstName: payload.firstName,
                 lastName: payload.lastName,
                 email: payload.email,
+                username: payload.username || payload.email || '',
                 role: payload.role,
                 manager: payload.manager || '',
-                isActive: payload.isActive ?? true,
-                createdAt: payload.createdAt || new Date().toISOString(),
-                updatedAt: payload.updatedAt || new Date().toISOString(),
+                paidLeaves: payload.paidLeaves || 25,
+                sickLeaves: payload.sickLeaves || 12,
+                compOffs: payload.compOffs || 0,
                 $createdAt: payload.$createdAt || new Date().toISOString(),
                 $updatedAt: payload.$updatedAt || new Date().toISOString()
               };

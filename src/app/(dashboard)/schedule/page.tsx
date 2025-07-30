@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { shiftService, userService } from '@/lib/appwrite/database';
-import { leaveService } from '@/lib/appwrite/leave-service';
+import { leaveService } from '@/lib/appwrite/database';
 import { Shift, User, EmployeeOnLeave, WeeklyLeaveData, LeaveType } from '@/types';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
@@ -448,6 +448,8 @@ export default function SchedulePage() {
                 title: "Leave Status Updated",
                 description: `Leave request ${eventTypeText} - schedule updated`,
                 duration: 2000,
+                variant: hasDeleteEvent ? "destructive" : "default",
+                className: hasDeleteEvent ? "" : "border-green-500 bg-green-50 text-green-900"
               });
             } else {
               // Handle shift events
@@ -493,6 +495,8 @@ export default function SchedulePage() {
                 title: "Schedule Updated",
                 description: `Assignment ${eventTypeText} instantly`,
                 duration: 2000,
+                variant: hasDeleteEvent ? "destructive" : "default",
+                className: hasDeleteEvent ? "" : "border-green-500 bg-green-50 text-green-900"
               });
             }
             
@@ -559,6 +563,7 @@ export default function SchedulePage() {
         toast({
           title: "Assignment Updated",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment updated successfully.`,
+          className: "border-green-500 bg-green-50 text-green-900"
         });
       } else {
         // Create new shift
@@ -571,6 +576,7 @@ export default function SchedulePage() {
         toast({
           title: "Assignment Created",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment created successfully.`,
+          className: "border-green-500 bg-green-50 text-green-900"
         });
       }
 
@@ -610,6 +616,7 @@ export default function SchedulePage() {
         toast({
           title: "Assignment Removed",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment removed successfully.`,
+          className: "border-green-500 bg-green-50 text-green-900"
         });
         await fetchScheduleData();
       } else {
@@ -637,9 +644,9 @@ export default function SchedulePage() {
     try {
       await fetchScheduleData();
       toast({
-        variant: "success",
         title: "Data Refreshed",
         description: "Schedule data has been updated successfully.",
+        className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (refreshError) {
       console.error('❌ Schedule: Error during silent refresh:', refreshError);

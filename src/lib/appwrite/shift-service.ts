@@ -1,7 +1,7 @@
 import { databases, DATABASE_ID, COLLECTIONS } from './config';
 import { Shift } from '@/types';
 import { Query } from 'appwrite';
-import { leaveService } from './leave-service';
+import { leaveService } from './database';
 
 export class ShiftService {
   async getAllShifts(): Promise<Shift[]> {

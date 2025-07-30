@@ -17,7 +17,7 @@ import { CalendarDays, Loader2 } from 'lucide-react';
 import { User, AuthUser } from '@/types';
 import { shiftService } from '@/lib/appwrite/shift-service';
 import { userService } from '@/lib/appwrite/user-service';
-import { leaveService } from '@/lib/appwrite/leave-service';
+import { leaveService } from '@/lib/appwrite/database';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
 import DraggableEmployeeBadge from './DraggableEmployeeBadge';

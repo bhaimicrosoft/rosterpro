@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { CalendarX, Users, Clock } from 'lucide-react';
 import { WeeklyLeaveData, LeaveType, User } from '@/types';
-import { leaveService } from '@/lib/appwrite/leave-service';
+import { leaveService } from '@/lib/appwrite/database';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 interface EmployeesOnLeaveProps {

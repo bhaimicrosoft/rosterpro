@@ -13,6 +13,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { SwapRequest, Shift, User as UserType } from '@/types';
 import { swapService, shiftService, userService } from '@/lib/appwrite/database';
+import { notificationService } from '@/lib/appwrite/database';
 import { useToast } from '@/hooks/use-toast';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
@@ -22,6 +23,7 @@ export default function SwapsPage() {
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<SwapRequest[]>([]);
   const [myShifts, setMyShifts] = useState<Shift[]>([]);
+  const [targetPersonShifts, setTargetPersonShifts] = useState<Shift[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -45,6 +47,9 @@ export default function SwapsPage() {
       if (user.role === 'EMPLOYEE') {
         requests = await swapService.getSwapRequestsByUser(user.$id);
         shifts = await shiftService.getShiftsByUser(user.$id);
+        // Employees also need access to team members for swap target selection
+        users = await userService.getAllUsers();
+        setTeamMembers(users.filter(u => u.$id !== user.$id)); // Exclude self from target list
       } else {
         requests = await swapService.getAllSwapRequests();
         users = await userService.getAllUsers();
@@ -75,13 +80,15 @@ export default function SwapsPage() {
 
       if (user.role === 'EMPLOYEE') {
         requests = await swapService.getSwapRequestsByUser(user.$id);
+        users = await userService.getAllUsers();
+        setTeamMembers(users.filter(u => u.$id !== user.$id)); // Exclude self from target list
       } else {
         requests = await swapService.getAllSwapRequests();
         users = await userService.getAllUsers();
+        setTeamMembers(users);
       }
 
       setSwapRequests(requests);
-      setTeamMembers(users);
       
     } catch {
       
@@ -181,6 +188,7 @@ export default function SwapsPage() {
               title: "Swap Requests Updated", 
               description: `${collection} ${eventTypeText} instantly`,
               duration: 2000,
+              variant: "info",
             });
             
           } catch {
@@ -200,27 +208,86 @@ export default function SwapsPage() {
     };
   }, [user, toast, silentRefreshSwapData]);
 
+  // Fetch target person's available shifts when they're selected
+  const fetchTargetPersonShifts = useCallback(async (targetUserId: string) => {
+    if (!targetUserId) {
+      setTargetPersonShifts([]);
+      return;
+    }
+
+    try {
+      // Get all shifts for the target person that are not completed yet
+      const allShifts = await shiftService.getShiftsByUser(targetUserId);
+      const today = new Date();
+      const todayString = today.toISOString().split('T')[0];
+      
+      // Filter to only include future shifts (not completed yet)
+      const availableShifts = allShifts.filter(shift => shift.date >= todayString);
+      setTargetPersonShifts(availableShifts);
+    } catch (error) {
+      console.error('Failed to fetch target person shifts:', error);
+      setTargetPersonShifts([]);
+    }
+  }, []);
+
+  // Handle target person selection
+  const handleTargetPersonChange = useCallback((value: string) => {
+    setNewSwapRequest(prev => ({ 
+      ...prev, 
+      targetUserId: value,
+      targetShiftId: '' // Reset target shift when person changes
+    }));
+    fetchTargetPersonShifts(value);
+  }, [fetchTargetPersonShifts]);
+
   const handleSubmitSwapRequest = async () => {
-    if (!user || !newSwapRequest.myShiftId || !newSwapRequest.reason) return;
+    // Validate required fields: myShiftId, targetShiftId, and reason
+    if (!user || !newSwapRequest.myShiftId || !newSwapRequest.targetShiftId || !newSwapRequest.reason) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields: My Shift, Target Shift, and Reason.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       const swapData: Omit<SwapRequest, '$id' | '$createdAt' | '$updatedAt'> = {
         requesterShiftId: newSwapRequest.myShiftId,
         requesterUserId: user.$id,
+        targetShiftId: newSwapRequest.targetShiftId, // Now required
         reason: newSwapRequest.reason,
         status: 'PENDING',
         requestedAt: new Date().toISOString(),
+        respondedAt: '', // Required field in schema, empty for new requests
       };
 
-      if (newSwapRequest.targetShiftId) {
-        swapData.targetShiftId = newSwapRequest.targetShiftId;
-      }
-
+      // targetUserId is optional (for open swaps)
       if (newSwapRequest.targetUserId) {
         swapData.targetUserId = newSwapRequest.targetUserId;
       }
 
       const request = await swapService.createSwapRequest(swapData);
+
+      // Send notification to target user if specified
+      if (newSwapRequest.targetUserId) {
+        try {
+          // Get shift details for better notification message
+          const shift = myShifts.find(s => s.$id === newSwapRequest.myShiftId);
+          const shiftDate = shift ? new Date(shift.date).toLocaleDateString() : 'Unknown date';
+          
+          await notificationService.createNotification({
+            userId: newSwapRequest.targetUserId,
+            type: 'swap_request',
+            title: 'New Shift Swap Request',
+            message: `${user.firstName} ${user.lastName} wants to swap shifts with you for ${shiftDate}`,
+            read: false,
+            relatedId: request.$id
+          });
+        } catch (error) {
+          console.error('Failed to send swap request notification:', error);
+        }
+      }
 
       setSwapRequests(prev => [request, ...prev]);
       setNewSwapRequest({
@@ -230,36 +297,105 @@ export default function SwapsPage() {
         reason: '',
       });
       setIsDialogOpen(false);
-    } catch {
       
+      toast({
+        title: "Swap Request Submitted",
+        description: "Your shift swap request has been submitted successfully.",
+        variant: "success",
+      });
+    } catch (error) {
+      console.error('Error submitting swap request:', error);
+      toast({
+        title: "Submission Failed",
+        description: "Failed to submit swap request. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
   const handleApproveSwap = useCallback(async (swapId: string) => {
-    if (user?.role === 'EMPLOYEE') return;
+    if (user?.role === 'EMPLOYEE' || !user) return;
 
     try {
+      // Find the swap request to get requester info
+      const swapRequest = swapRequests.find(req => req.$id === swapId);
+      if (!swapRequest) return;
+
       await swapService.updateSwapRequest(swapId, { status: 'APPROVED' });
       setSwapRequests(prev => prev.map(swap => 
         swap.$id === swapId ? { ...swap, status: 'APPROVED' } : swap
       ));
-    } catch {
-      
+
+      // Send notification to requester
+      try {
+        await notificationService.createNotification({
+          userId: swapRequest.requesterUserId,
+          type: 'swap_response',
+          title: 'Swap Request Approved',
+          message: `${user.firstName} ${user.lastName} has approved your shift swap request`,
+          read: false,
+          relatedId: swapId
+        });
+      } catch (error) {
+        console.error('Failed to send approval notification:', error);
+      }
+
+      toast({
+        title: "Swap Request Approved",
+        description: "The shift swap request has been approved.",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Error approving swap request:', error);
+      toast({
+        title: "Approval Failed",
+        description: "Failed to approve swap request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [user?.role]);
+  }, [user, swapRequests, toast]);
 
   const handleRejectSwap = useCallback(async (swapId: string) => {
-    if (user?.role === 'EMPLOYEE') return;
+    if (user?.role === 'EMPLOYEE' || !user) return;
 
     try {
+      // Find the swap request to get requester info
+      const swapRequest = swapRequests.find(req => req.$id === swapId);
+      if (!swapRequest) return;
+
       await swapService.updateSwapRequest(swapId, { status: 'REJECTED' });
       setSwapRequests(prev => prev.map(swap => 
         swap.$id === swapId ? { ...swap, status: 'REJECTED' } : swap
       ));
-    } catch {
-      
+
+      // Send notification to requester
+      try {
+        await notificationService.createNotification({
+          userId: swapRequest.requesterUserId,
+          type: 'swap_response',
+          title: 'Swap Request Rejected',
+          message: `${user.firstName} ${user.lastName} has rejected your shift swap request`,
+          read: false,
+          relatedId: swapId
+        });
+      } catch (error) {
+        console.error('Failed to send rejection notification:', error);
+      }
+
+      toast({
+        title: "Swap Request Rejected",
+        description: "The shift swap request has been rejected.",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Error rejecting swap request:', error);
+      toast({
+        title: "Rejection Failed",
+        description: "Failed to reject swap request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [user?.role]);
+  }, [user, swapRequests, toast]);
 
   const getUserName = (userId: string) => {
     const foundUser = teamMembers.find(member => member.$id === userId);
@@ -535,7 +671,7 @@ export default function SwapsPage() {
               </div>
               <div>
                 <Label htmlFor="targetUser" className="text-sm font-medium">Target Person (Optional)</Label>
-                <Select value={newSwapRequest.targetUserId} onValueChange={(value) => setNewSwapRequest(prev => ({ ...prev, targetUserId: value }))}>
+                <Select value={newSwapRequest.targetUserId} onValueChange={handleTargetPersonChange}>
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder="Anyone can accept (leave empty)" />
                   </SelectTrigger>
@@ -548,6 +684,46 @@ export default function SwapsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              
+              {newSwapRequest.targetUserId && (
+                <div>
+                  <Label htmlFor="targetShift" className="text-sm font-medium">Target Person&apos;s Shift *</Label>
+                  <Select value={newSwapRequest.targetShiftId} onValueChange={(value) => setNewSwapRequest(prev => ({ ...prev, targetShiftId: value }))}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select target person's shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {targetPersonShifts.map((shift) => (
+                        <SelectItem key={shift.$id} value={shift.$id}>
+                          {shift.date} - {shift.onCallRole}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {targetPersonShifts.length === 0 && (
+                    <p className="text-sm text-gray-500 mt-1">No available shifts found for this person.</p>
+                  )}
+                </div>
+              )}
+              
+              {!newSwapRequest.targetUserId && (
+                <div>
+                  <Label htmlFor="openShift" className="text-sm font-medium">Target Shift (for open swap) *</Label>
+                  <Select value={newSwapRequest.targetShiftId} onValueChange={(value) => setNewSwapRequest(prev => ({ ...prev, targetShiftId: value }))}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select any available shift" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {myShifts.map((shift) => (
+                        <SelectItem key={shift.$id} value={shift.$id}>
+                          {shift.date} - {shift.onCallRole}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-gray-500 mt-1">For open swaps, select any shift as the target.</p>
+                </div>
+              )}
               <div>
                 <Label htmlFor="reason" className="text-sm font-medium">Reason for Swap</Label>
                 <Textarea
@@ -564,7 +740,7 @@ export default function SwapsPage() {
                 </Button>
                 <Button 
                   onClick={handleSubmitSwapRequest}
-                  disabled={!newSwapRequest.myShiftId || !newSwapRequest.reason}
+                  disabled={!newSwapRequest.myShiftId || !newSwapRequest.targetShiftId || !newSwapRequest.reason}
                   className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
                 >
                   Submit Request

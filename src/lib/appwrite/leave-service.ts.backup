@@ -1,6 +1,7 @@
 import { databases, DATABASE_ID, COLLECTIONS } from './config';
 import { LeaveRequest } from '@/types';
 import { Query } from 'appwrite';
+import { userService } from './user-service';
 
 export class LeaveService {
   async getAllLeaveRequests(): Promise<LeaveRequest[]> {
@@ -82,7 +83,60 @@ export class LeaveService {
   }
 
   async approveLeaveRequest(leaveId: string): Promise<LeaveRequest> {
-    return this.updateLeaveRequest(leaveId, { status: 'APPROVED' });
+    try {
+      // First get the leave request to calculate days and get user info
+      const leaveRequest = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId
+      ) as unknown as LeaveRequest;
+
+      console.log('Approving leave request:', leaveRequest);
+
+      // Calculate number of days (inclusive of start and end date)
+      const startDate = new Date(leaveRequest.startDate);
+      const endDate = new Date(leaveRequest.endDate);
+      const timeDiff = endDate.getTime() - startDate.getTime();
+      const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end dates
+
+      console.log(`Calculated ${daysDiff} days for leave request`);
+
+      // Get current user to get their leave balances
+      const user = await userService.getUserById(leaveRequest.userId);
+      console.log('Current user leave balances:', {
+        paidLeaves: user.paidLeaves,
+        sickLeaves: user.sickLeaves,
+        compOffs: user.compOffs
+      });
+
+      // Calculate new balances based on leave type
+      const updateData: { paidLeaves?: number; sickLeaves?: number; compOffs?: number } = {};
+      
+      switch (leaveRequest.type) {
+        case 'PAID':
+          updateData.paidLeaves = Math.max(0, (user.paidLeaves || 0) - daysDiff);
+          break;
+        case 'SICK':
+          updateData.sickLeaves = Math.max(0, (user.sickLeaves || 0) - daysDiff);
+          break;
+        case 'COMP_OFF':
+          updateData.compOffs = Math.max(0, (user.compOffs || 0) - daysDiff);
+          break;
+      }
+
+      console.log('Updating user leave balances:', updateData);
+
+      // Update user's leave balance
+      await userService.updateUser(leaveRequest.userId, updateData);
+
+      console.log('Leave balances updated successfully');
+
+      // Update leave request status to approved
+      return this.updateLeaveRequest(leaveId, { status: 'APPROVED' });
+    } catch (error) {
+      console.error('Error in approveLeaveRequest:', error);
+      throw error;
+    }
   }
 
   async rejectLeaveRequest(leaveId: string): Promise<LeaveRequest> {

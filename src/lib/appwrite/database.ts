@@ -263,6 +263,124 @@ export const leaveService = {
       throw error;
     }
   },
+
+  async approveLeaveRequest(leaveId: string) {
+    console.log('=== approveLeaveRequest called with leaveId:', leaveId);
+    try {
+      // First get the leave request to calculate days and get user info
+      const leaveRequest = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId
+      );
+
+      console.log('Leave request fetched:', leaveRequest);
+
+      // Calculate number of days (inclusive of start and end date)
+      const startDate = new Date(leaveRequest.startDate);
+      const endDate = new Date(leaveRequest.endDate);
+      const timeDiff = endDate.getTime() - startDate.getTime();
+      const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end dates
+
+      console.log(`Calculated ${daysDiff} days for leave request from ${leaveRequest.startDate} to ${leaveRequest.endDate}`);
+
+      // Get current user to get their leave balances
+      const currentUser = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.USERS,
+        leaveRequest.userId
+      );
+
+      console.log('Current user before deduction:', {
+        userId: leaveRequest.userId,
+        paidLeaves: currentUser.paidLeaves,
+        sickLeaves: currentUser.sickLeaves,
+        compOffs: currentUser.compOffs,
+        leaveType: leaveRequest.type,
+        daysDiff
+      });
+
+      // Calculate new balances based on leave type
+      const updateData: { paidLeaves?: number; sickLeaves?: number; compOffs?: number } = {};
+      
+      switch (leaveRequest.type) {
+        case 'PAID':
+          updateData.paidLeaves = Math.max(0, (currentUser.paidLeaves || 0) - daysDiff);
+          break;
+        case 'SICK':
+          updateData.sickLeaves = Math.max(0, (currentUser.sickLeaves || 0) - daysDiff);
+          break;
+        case 'COMP_OFF':
+          updateData.compOffs = Math.max(0, (currentUser.compOffs || 0) - daysDiff);
+          break;
+      }
+
+      console.log('Update data to be applied:', updateData);
+
+      // Update user's leave balance
+      await databases.updateDocument(
+        DATABASE_ID,
+        COLLECTIONS.USERS,
+        leaveRequest.userId,
+        updateData
+      );
+
+      console.log('User leave balance updated successfully');
+
+      // Update leave request status to approved
+      const leave = await databases.updateDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId,
+        { status: 'APPROVED' }
+      );
+      
+      console.log('Leave request status updated to APPROVED');
+      return castDocument<LeaveRequest>(leave);
+    } catch (error) {
+      console.error('ERROR in approveLeaveRequest:', error);
+      throw error;
+    }
+  },
+
+  async isUserOnLeave(userId: string, date: string) {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        [
+          Query.equal('userId', userId),
+          Query.equal('status', 'APPROVED'),
+          Query.lessThanEqual('startDate', date),
+          Query.greaterThanEqual('endDate', date),
+          Query.limit(1)
+        ]
+      );
+      return response.documents.length > 0;
+    } catch (error) {
+      console.error('Error checking if user is on leave:', error);
+      return false;
+    }
+  },
+
+  async getApprovedLeavesByDateRange(startDate: string, endDate: string) {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        [
+          Query.equal('status', 'APPROVED'),
+          Query.lessThanEqual('startDate', endDate),
+          Query.greaterThanEqual('endDate', startDate),
+          Query.orderAsc('startDate')
+        ]
+      );
+      return castDocuments<LeaveRequest>(response.documents);
+    } catch (error) {
+      console.error('Error getting approved leaves by date range:', error);
+      throw error;
+    }
+  },
 };
 
 // Swap request services
@@ -323,7 +441,7 @@ export const swapService = {
     try {
       const cleanedUpdates = cleanUpdateData({
         ...updates,
-        respondedAt: updates.status !== 'pending' ? new Date().toISOString() : undefined,
+        respondedAt: updates.status !== 'PENDING' ? new Date().toISOString() : undefined,
       });
       
       const swap = await databases.updateDocument(

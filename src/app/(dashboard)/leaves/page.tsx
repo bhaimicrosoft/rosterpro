@@ -15,6 +15,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { LeaveRequest, User as UserType } from '@/types';
 import { leaveService, userService } from '@/lib/appwrite/database';
+import { notificationService } from '@/lib/appwrite/database';
 import { useToast } from '@/hooks/use-toast';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
@@ -35,6 +36,7 @@ export default function LeavesPage() {
     type: 'PAID' as 'PAID' | 'SICK' | 'COMP_OFF',
     reason: '',
   });
+  const [dateConflictWarning, setDateConflictWarning] = useState<string>('');
 
   const fetchLeaveData = useCallback(async () => {
     if (!user) return;
@@ -125,11 +127,20 @@ export default function LeavesPage() {
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
           
+          // Only process events for requests that should be visible to current user
+          const shouldProcessEvent = user.role === 'EMPLOYEE' 
+            ? payload.userId === user.$id 
+            : true; // Managers see all requests
+          
+          if (!shouldProcessEvent) {
+            return;
+          }
           
           try {
             if (hasCreateEvent || hasUpdateEvent) {
               // For CREATE/UPDATE: Update leave requests directly
               setLeaveRequests(prevRequests => {
+                // Remove any existing request with the same ID to prevent duplicates
                 const filteredRequests = prevRequests.filter(lr => lr.$id !== payload.$id);
                 if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
                   const newRequest: LeaveRequest = {
@@ -145,7 +156,8 @@ export default function LeavesPage() {
                     $updatedAt: payload.$updatedAt || new Date().toISOString()
                   };
                   
-                  return [...filteredRequests, newRequest];
+                  // Add to beginning to maintain chronological order (newest first)
+                  return [newRequest, ...filteredRequests];
                 }
                 return filteredRequests;
               });
@@ -153,18 +165,20 @@ export default function LeavesPage() {
               // For DELETE: Remove leave request directly
               setLeaveRequests(prevRequests => {
                 const filtered = prevRequests.filter(lr => lr.$id !== payload.$id);
-                
                 return filtered;
               });
             }
             
-            // Show toast notification
-            const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
-            toast({
-              title: "Leave Requests Updated",
-              description: `Leave request ${eventTypeText} instantly`,
-              duration: 2000,
-            });
+            // Show toast notification (less frequent to avoid spam)
+            if (Math.random() < 0.3) { // Only show 30% of the time to reduce notification spam
+              const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+              toast({
+                title: "Leave Requests Updated",
+                description: `Leave request ${eventTypeText} instantly`,
+                duration: 2000,
+                variant: "info",
+              });
+            }
             
           } catch {
             
@@ -219,10 +233,121 @@ export default function LeavesPage() {
     setFilteredRequests(filtered);
   }, [leaveRequests, filterStatus, filterType]);
 
+  // Check if a date range conflicts with existing active leaves
+  const checkDateConflict = useCallback((startDate: string, endDate: string) => {
+    if (!user || !startDate || !endDate) return null;
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    const conflictingLeave = leaveRequests.find(request => {
+      // Only check active requests (not rejected or cancelled)
+      if (request.userId !== user.$id || request.status === 'REJECTED' || request.status === 'CANCELLED') {
+        return false;
+      }
+      
+      const existingStart = new Date(request.startDate);
+      const existingEnd = new Date(request.endDate);
+      
+      // Check if dates overlap
+      return (start <= existingEnd && end >= existingStart);
+    });
+    
+    return conflictingLeave;
+  }, [leaveRequests, user]);
+
+  // Handle date changes with conflict checking
+  const handleStartDateChange = useCallback((date: string) => {
+    setNewRequest(prev => ({ ...prev, startDate: date }));
+    
+    // Check for conflicts if end date is also set
+    if (newRequest.endDate && date) {
+      const conflict = checkDateConflict(date, newRequest.endDate);
+      if (conflict) {
+        setDateConflictWarning(`Conflicts with ${conflict.status.toLowerCase()} ${conflict.type.toLowerCase().replace('_', ' ')} leave from ${conflict.startDate} to ${conflict.endDate}`);
+      } else {
+        setDateConflictWarning('');
+      }
+    }
+  }, [newRequest.endDate, checkDateConflict]);
+
+  const handleEndDateChange = useCallback((date: string) => {
+    setNewRequest(prev => ({ ...prev, endDate: date }));
+    
+    // Check for conflicts if start date is also set
+    if (newRequest.startDate && date) {
+      const conflict = checkDateConflict(newRequest.startDate, date);
+      if (conflict) {
+        setDateConflictWarning(`Conflicts with ${conflict.status.toLowerCase()} ${conflict.type.toLowerCase().replace('_', ' ')} leave from ${conflict.startDate} to ${conflict.endDate}`);
+      } else {
+        setDateConflictWarning('');
+      }
+    }
+  }, [newRequest.startDate, checkDateConflict]);
+
   const handleSubmitRequest = async () => {
-    if (!user || !newRequest.startDate || !newRequest.endDate || !newRequest.reason) return;
+    if (!user || !newRequest.startDate || !newRequest.endDate || !newRequest.reason) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
+      // Calculate number of days requested
+      const startDate = new Date(newRequest.startDate);
+      const endDate = new Date(newRequest.endDate);
+      const timeDiff = endDate.getTime() - startDate.getTime();
+      const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end date
+
+      // Validate date range
+      if (startDate > endDate) {
+        toast({
+          title: "Invalid Date Range",
+          description: "End date must be after or equal to start date",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate leave balance
+      const availableLeaves = newRequest.type === 'PAID' ? (user.paidLeaves || 0) : 
+                             newRequest.type === 'SICK' ? (user.sickLeaves || 0) : 
+                             (user.compOffs || 0);
+
+      if (availableLeaves === 0) {
+        toast({
+          title: "No Leave Days Available",
+          description: `You have no ${newRequest.type.toLowerCase().replace('_', ' ')} days remaining`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (daysDiff > availableLeaves) {
+        toast({
+          title: "Insufficient Leave Balance",
+          description: `You requested ${daysDiff} days but only have ${availableLeaves} ${newRequest.type.toLowerCase().replace('_', ' ')} days available`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Check for overlapping leave requests using the new helper function
+      const conflictingLeave = checkDateConflict(newRequest.startDate, newRequest.endDate);
+      if (conflictingLeave) {
+        const conflictType = conflictingLeave.status === 'PENDING' ? 'pending' : 'approved';
+        toast({
+          title: "Date Conflict",
+          description: `You already have a ${conflictType} ${conflictingLeave.type.toLowerCase().replace('_', ' ')} leave request from ${conflictingLeave.startDate} to ${conflictingLeave.endDate}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // All validations passed, create the request
       const request = await leaveService.createLeaveRequest({
         userId: user.$id,
         startDate: newRequest.startDate,
@@ -232,6 +357,22 @@ export default function LeavesPage() {
         status: 'PENDING',
       });
 
+      // Send notification to manager if manager ID exists
+      if (user.manager) {
+        try {
+          await notificationService.createNotification({
+            userId: user.manager,
+            type: 'LEAVE_REQUEST',
+            title: 'New Leave Request',
+            message: `${user.firstName} ${user.lastName} has requested ${newRequest.type.toLowerCase().replace('_', ' ')} leave from ${newRequest.startDate} to ${newRequest.endDate}`,
+            read: false
+          });
+        } catch (error) {
+          console.error('Failed to send notification to manager:', error);
+          // Don't block the leave request if notification fails
+        }
+      }
+
       setLeaveRequests(prev => [request, ...prev]);
       setNewRequest({
         startDate: '',
@@ -239,37 +380,132 @@ export default function LeavesPage() {
         type: 'PAID',
         reason: '',
       });
+      setDateConflictWarning(''); // Clear any conflict warning
       setIsDialogOpen(false);
-    } catch {
       
+      toast({
+        title: "Leave Request Submitted",
+        description: `Your ${newRequest.type.toLowerCase().replace('_', ' ')} request for ${daysDiff} day${daysDiff > 1 ? 's' : ''} has been submitted`,
+        variant: "success",
+      });
+    } catch (error) {
+      console.error('Error submitting leave request:', error);
+      toast({
+        title: "Submission Failed",
+        description: "Failed to submit leave request. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
   const handleApproveRequest = useCallback(async (requestId: string) => {
-    if (user?.role === 'EMPLOYEE') return;
+    console.log('🚀 === handleApproveRequest CALLED with requestId:', requestId);
+    console.log('🚀 User role:', user?.role);
+    if (user?.role === 'EMPLOYEE') {
+      console.log('🚀 User is EMPLOYEE, returning early');
+      return;
+    }
 
     try {
-      await leaveService.updateLeaveRequest(requestId, { status: 'APPROVED' });
+      // Find the request to get employee info and details
+      const request = leaveRequests.find(req => req.$id === requestId);
+      if (!request) {
+        console.log('🚀 Request not found in leaveRequests array');
+        return;
+      }
+
+      console.log('🚀 Found request:', request);
+      console.log('🚀 leaveService object:', leaveService);
+      console.log('🚀 leaveService.approveLeaveRequest method:', leaveService.approveLeaveRequest);
+      console.log('🚀 About to call leaveService.approveLeaveRequest...');
+
+      // Use the updated approval method that deducts leave balance
+      await leaveService.approveLeaveRequest(requestId);
+      
+      console.log('🚀 leaveService.approveLeaveRequest completed successfully');
+
       setLeaveRequests(prev => prev.map(req => 
         req.$id === requestId ? { ...req, status: 'APPROVED' as const } : req
       ));
-    } catch {
-      
+
+      // Send notification to employee
+      try {
+        const employee = teamMembers.find(member => member.$id === request.userId) || 
+                        await userService.getUserById(request.userId);
+        
+        if (employee) {
+          await notificationService.createNotification({
+            userId: request.userId,
+            type: 'LEAVE_APPROVED',
+            title: 'Leave Request Approved',
+            message: `Your ${request.type.toLowerCase().replace('_', ' ')} leave request from ${request.startDate} to ${request.endDate} has been approved`,
+            read: false
+          });
+        }
+      } catch (error) {
+        console.error('Failed to send approval notification:', error);
+      }
+
+      // Calculate days for the toast message
+      const startDate = new Date(request.startDate);
+      const endDate = new Date(request.endDate);
+      const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1;
+
+      toast({
+        title: "Leave request approved",
+        description: `The leave request has been approved and ${daysDiff} day${daysDiff > 1 ? 's' : ''} have been deducted from the employee's ${request.type.toLowerCase().replace('_', ' ')} balance.`,
+        variant: "success",
+      });
+    } catch (error) {
+      console.error('🚀 Error approving leave request:', error);
+      toast({
+        title: "Approval Failed",
+        description: "Failed to approve leave request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [user?.role]);
+  }, [user?.role, leaveRequests, teamMembers, toast]);
 
   const handleRejectRequest = useCallback(async (requestId: string) => {
     if (user?.role === 'EMPLOYEE') return;
 
     try {
+      // Find the request to get employee info and details
+      const request = leaveRequests.find(req => req.$id === requestId);
+      if (!request) return;
+
       await leaveService.updateLeaveRequest(requestId, { status: 'REJECTED' });
       setLeaveRequests(prev => prev.map(req => 
         req.$id === requestId ? { ...req, status: 'REJECTED' as const } : req
       ));
-    } catch {
-      
+
+      // Send notification to employee
+      try {
+        await notificationService.createNotification({
+          userId: request.userId,
+          type: 'LEAVE_REJECTED',
+          title: 'Leave Request Rejected',
+          message: `Your ${request.type.toLowerCase().replace('_', ' ')} leave request from ${request.startDate} to ${request.endDate} has been rejected`,
+          read: false
+        });
+      } catch (error) {
+        console.error('Failed to send rejection notification:', error);
+      }
+
+      toast({
+        title: "Leave request rejected",
+        description: "The leave request has been rejected.",
+        variant: "info",
+      });
+    } catch (error) {
+      console.error('Error rejecting leave request:', error);
+      toast({
+        title: "Rejection Failed",
+        description: "Failed to reject leave request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [user?.role]);
+  }, [user?.role, leaveRequests, toast]);
 
   const handleCancelRequest = useCallback(async (requestId: string) => {
     try {
@@ -281,6 +517,7 @@ export default function LeavesPage() {
       toast({
         title: "Leave request cancelled",
         description: "Your leave request has been cancelled successfully.",
+        variant: "success",
       });
     } catch {
       toast({
@@ -703,6 +940,19 @@ export default function LeavesPage() {
               <DialogTitle className="text-lg sm:text-xl font-semibold">Request Leave</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
+              {/* Show existing leave dates warning */}
+              {leaveRequests.some(req => req.status !== 'REJECTED') && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-amber-800">
+                    <AlertCircle className="h-4 w-4" />
+                    <span className="text-sm font-medium">Note:</span>
+                  </div>
+                  <p className="text-sm text-amber-700 mt-1">
+                    You cannot request leave for dates that overlap with existing approved or pending requests.
+                  </p>
+                </div>
+              )}
+              
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="startDate" className="text-sm font-medium">Start Date</Label>
@@ -710,7 +960,8 @@ export default function LeavesPage() {
                     id="startDate"
                     type="date"
                     value={newRequest.startDate}
-                    onChange={(e) => setNewRequest(prev => ({ ...prev, startDate: e.target.value }))}
+                    min={new Date().toISOString().split('T')[0]} // Prevent past dates
+                    onChange={(e) => handleStartDateChange(e.target.value)}
                     className="mt-1"
                   />
                 </div>
@@ -720,11 +971,23 @@ export default function LeavesPage() {
                     id="endDate"
                     type="date"
                     value={newRequest.endDate}
-                    onChange={(e) => setNewRequest(prev => ({ ...prev, endDate: e.target.value }))}
+                    min={newRequest.startDate || new Date().toISOString().split('T')[0]} // End date must be >= start date
+                    onChange={(e) => handleEndDateChange(e.target.value)}
                     className="mt-1"
                   />
                 </div>
               </div>
+              
+              {dateConflictWarning && (
+                <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                  <div className="flex items-center">
+                    <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+                    <p className="text-sm text-red-800 font-medium">Date Conflict</p>
+                  </div>
+                  <p className="text-sm text-red-700 mt-1">{dateConflictWarning}</p>
+                </div>
+              )}
+              
               <div>
                 <Label htmlFor="leaveType" className="text-sm font-medium">Leave Type</Label>
                 <Select value={newRequest.type} onValueChange={(value: 'PAID' | 'SICK' | 'COMP_OFF') => setNewRequest(prev => ({ ...prev, type: value }))}>
@@ -732,11 +995,41 @@ export default function LeavesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PAID">Paid Leave</SelectItem>
-                    <SelectItem value="SICK">Sick Leave</SelectItem>
-                    <SelectItem value="COMP_OFF">Comp Off</SelectItem>
+                    <SelectItem value="PAID" disabled={user?.paidLeaves === 0}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>Paid Leave</span>
+                        <Badge variant={user?.paidLeaves === 0 ? "destructive" : "secondary"} className="ml-2">
+                          {user?.paidLeaves || 0} days left
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="SICK" disabled={user?.sickLeaves === 0}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>Sick Leave</span>
+                        <Badge variant={user?.sickLeaves === 0 ? "destructive" : "secondary"} className="ml-2">
+                          {user?.sickLeaves || 0} days left
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="COMP_OFF" disabled={user?.compOffs === 0}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>Comp Off</span>
+                        <Badge variant={user?.compOffs === 0 ? "destructive" : "secondary"} className="ml-2">
+                          {user?.compOffs || 0} days left
+                        </Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
+                {/* Show warning if selected leave type has no days */}
+                {((newRequest.type === 'PAID' && user?.paidLeaves === 0) ||
+                  (newRequest.type === 'SICK' && user?.sickLeaves === 0) ||
+                  (newRequest.type === 'COMP_OFF' && user?.compOffs === 0)) && (
+                  <div className="mt-2 flex items-center gap-2 text-red-600 text-sm">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>You have no {newRequest.type.toLowerCase().replace('_', ' ')} days remaining</span>
+                  </div>
+                )}
               </div>
               <div>
                 <Label htmlFor="reason" className="text-sm font-medium">Reason</Label>
@@ -749,12 +1042,15 @@ export default function LeavesPage() {
                 />
               </div>
               <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4">
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="w-full sm:w-auto">
+                <Button variant="outline" onClick={() => {
+                  setIsDialogOpen(false);
+                  setDateConflictWarning(''); // Clear warning when closing dialog
+                }} className="w-full sm:w-auto">
                   Cancel
                 </Button>
                 <Button 
                   onClick={handleSubmitRequest}
-                  disabled={!newRequest.startDate || !newRequest.endDate || !newRequest.reason}
+                  disabled={!newRequest.startDate || !newRequest.endDate || !newRequest.reason || !!dateConflictWarning}
                   className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
                 >
                   Submit Request

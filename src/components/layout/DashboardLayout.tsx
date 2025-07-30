@@ -50,6 +50,7 @@ import {
   CheckCheck,
 } from 'lucide-react';
 import { notificationService } from '@/lib/appwrite/database';
+import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { Notification } from '@/types';
 
 interface DashboardLayoutProps {
@@ -79,6 +80,49 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     };
     
     fetchNotifications();
+  }, [user?.$id]);
+
+  // Real-time subscription for notifications
+  useEffect(() => {
+    if (!user?.$id) return;
+
+    const unsubscribe = client.subscribe(
+      `databases.${DATABASE_ID}.collections.${COLLECTIONS.NOTIFICATIONS}.documents`,
+      (response) => {
+        const events = response.events || [];
+        const payload = response.payload as { userId?: string; $id?: string } & Notification;
+        
+        // Check if this notification is for the current user
+        if (payload?.userId === user.$id) {
+          const hasCreateEvent = events.some((event: string) => 
+            event.includes('.create') || event.includes('documents.create')
+          );
+          const hasUpdateEvent = events.some((event: string) => 
+            event.includes('.update') || event.includes('documents.update')
+          );
+          const hasDeleteEvent = events.some((event: string) => 
+            event.includes('.delete') || event.includes('documents.delete')
+          );
+
+          if (hasCreateEvent) {
+            // Add new notification
+            setNotifications(prev => [payload as Notification, ...prev]);
+          } else if (hasUpdateEvent) {
+            // Update existing notification
+            setNotifications(prev => 
+              prev.map(n => n.$id === payload.$id ? payload as Notification : n)
+            );
+          } else if (hasDeleteEvent) {
+            // Remove deleted notification
+            setNotifications(prev => prev.filter(n => n.$id !== payload.$id));
+          }
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
   }, [user?.$id]);
 
   // Get unread notification count

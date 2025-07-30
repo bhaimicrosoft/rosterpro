@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DashboardStats, DashboardApprovalRequest, DashboardShift, Shift, User, LeaveRequest, SwapRequest, LeaveType, LeaveStatus, SwapStatus } from '@/types';
 import { shiftService } from '@/lib/appwrite/shift-service';
 import { userService } from '@/lib/appwrite/user-service';
-import { leaveService } from '@/lib/appwrite/leave-service';
+import { leaveService } from '@/lib/appwrite/database';
 import { swapService } from '@/lib/appwrite/swap-service';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { useToast } from '@/hooks/use-toast';
@@ -151,11 +151,26 @@ export default function DashboardPage() {
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days from today = 7 days from tomorrow
 
+      // Calculate current week range (Monday to Sunday)
+      const currentDate = new Date();
+      const startOfWeek = new Date(currentDate);
+      const day = startOfWeek.getDay();
+      const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+      startOfWeek.setDate(diff);
+      
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      
+      const weekStart = startOfWeek.toISOString().split('T')[0];
+      const weekEnd = endOfWeek.toISOString().split('T')[0];
+
       // Create proper date ranges for querying (add time components)
       const todayStart = `${today}T00:00:00.000Z`;
       const todayEnd = `${today}T23:59:59.999Z`;
       const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
       const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
+      const weekStartTime = `${weekStart}T00:00:00.000Z`;
+      const weekEndTime = `${weekEnd}T23:59:59.999Z`;
 
       console.log('📅 Dashboard data fetch - Date calculations:', { 
         today, 
@@ -165,7 +180,9 @@ export default function DashboardPage() {
         todayEnd,
         tomorrowStart,
         sevenDaysEnd,
-        note: 'Upcoming shifts: 7 days from tomorrow, excluding today from results',
+        weekStart,
+        weekEnd,
+        note: 'Upcoming shifts: 7 days from tomorrow, excluding today from results. My Shifts: current week only',
         currentDate: new Date().toString(),
         currentUTC: new Date().toISOString()
       });
@@ -177,12 +194,14 @@ export default function DashboardPage() {
         allUsers,
         todayShifts,
         upcomingShiftsRaw,
+        weeklyShifts, // For "My Shifts" calculation
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
         shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd), // Next 7 days from tomorrow
+        shiftService.getShiftsByDateRange(weekStartTime, weekEndTime), // Current week for "My Shifts"
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
@@ -192,6 +211,14 @@ export default function DashboardPage() {
         const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
         return shiftDate !== today; // Exclude today
       });
+
+      // Calculate My Shifts for current week (including weekends, PRIMARY or BACKUP)
+      const myWeeklyShifts = isManagerOrAdmin 
+        ? 0 
+        : weeklyShifts.filter((s: Shift) => 
+            s.userId === userId && 
+            (s.onCallRole === 'PRIMARY' || s.onCallRole === 'BACKUP')
+          ).length;
 
       // Filter data based on user role (use allUsers for filtering)
       const displayUsers = allUsers;
@@ -210,7 +237,7 @@ export default function DashboardPage() {
       
       // Calculate dashboard stats - fix employee count to only include employees
       const dashboardStats: DashboardStats = {
-        totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
+        totalEmployees: isManagerOrAdmin ? employeesOnly.length : myWeeklyShifts, // For employees, show their weekly shifts count
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
         upcomingShifts: upcomingShifts.length,
@@ -510,78 +537,84 @@ export default function DashboardPage() {
     });
     
     try {
+      // For employee users, recalculate "My Shifts" count if the shift belongs to them
+      if (!isManagerOrAdmin && payload.userId === userId) {
+        // Calculate current week range
+        const currentDate = new Date();
+        const startOfWeek = new Date(currentDate);
+        const day = startOfWeek.getDay();
+        const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+        startOfWeek.setDate(diff);
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        
+        const weekStart = startOfWeek.toISOString().split('T')[0];
+        const weekEnd = endOfWeek.toISOString().split('T')[0];
+        
+        // Check if this shift is in the current week
+        if (shiftDate >= weekStart && shiftDate <= weekEnd) {
+          try {
+            // Fetch updated weekly shifts count
+            const weekStartTime = `${weekStart}T00:00:00.000Z`;
+            const weekEndTime = `${weekEnd}T23:59:59.999Z`;
+            const weeklyShifts = await shiftService.getShiftsByDateRange(weekStartTime, weekEndTime);
+            
+            const myWeeklyShiftsCount = weeklyShifts.filter((s: Shift) => 
+              s.userId === userId && 
+              (s.onCallRole === 'PRIMARY' || s.onCallRole === 'BACKUP')
+            ).length;
+            
+            console.log('📊 Updated My Shifts count:', myWeeklyShiftsCount);
+            
+            setStats(prev => ({
+              ...prev,
+              totalEmployees: myWeeklyShiftsCount
+            }));
+          } catch (error) {
+            console.error('❌ Error updating My Shifts count:', error);
+          }
+        }
+      }
+      
       if (eventType === 'CREATE' || eventType === 'UPDATE') {
         // Get user info for the shift
         const shiftUser = await userService.getUserById(payload.userId as string);
         
         // Update today's schedule if it's for today
         if (shiftDate === today) {
-          setTodaySchedule(prev => {
-            console.log('📋 Current todaySchedule before update:', prev.map(s => ({ id: s.$id, role: s.onCallRole, name: s._employeeName })));
-            
-            // Only filter out the specific shift being updated (by $id)
-            const filtered = prev.filter(s => s.$id !== (payload.$id as string));
-            
-            if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
-              const newShift: DashboardShift = {
-                $id: payload.$id as string,
-                userId: payload.userId as string,
-                date: payload.date as string,
-                onCallRole: payload.onCallRole as 'PRIMARY' | 'BACKUP',
-                status: (payload.status as 'SCHEDULED' | 'COMPLETED' | 'SWAPPED') || 'SCHEDULED',
-                _employeeName: `${shiftUser.firstName} ${shiftUser.lastName}`,
-                startTime: '07:30',
-                endTime: '15:30',
-                type: payload.type as string,
-                createdAt: payload.createdAt as string || new Date().toISOString(),
-                updatedAt: payload.updatedAt as string || new Date().toISOString(),
-                $createdAt: payload.$createdAt as string || new Date().toISOString(),
-                $updatedAt: payload.$updatedAt as string || new Date().toISOString()
-              };
-              
-              // Add the new/updated shift and sort by role for consistent display
-              const updatedSchedule = [...filtered, newShift];
-              const sortedSchedule = updatedSchedule.sort((a, b) => {
-                // Sort PRIMARY first, then BACKUP
-                if (a.onCallRole === 'PRIMARY' && b.onCallRole === 'BACKUP') return -1;
-                if (a.onCallRole === 'BACKUP' && b.onCallRole === 'PRIMARY') return 1;
-                return 0;
-              });
-              
-              console.log('📋 Updated todaySchedule after processing:', sortedSchedule.map(s => ({ id: s.$id, role: s.onCallRole, name: s._employeeName })));
-              return sortedSchedule;
-            }
-            
-            console.log('📋 Filtered todaySchedule (no new shift added):', filtered.map(s => ({ id: s.$id, role: s.onCallRole, name: s._employeeName })));
-            return filtered;
-          });
+          const newShift: DashboardShift = {
+            $id: payload.$id as string,
+            userId: payload.userId as string,
+            date: payload.date as string,
+            onCallRole: payload.onCallRole as 'PRIMARY' | 'BACKUP',
+            status: (payload.status as 'SCHEDULED' | 'COMPLETED' | 'SWAPPED') || 'SCHEDULED',
+            _employeeName: `${shiftUser.firstName} ${shiftUser.lastName}`,
+            startTime: '07:30',
+            endTime: '15:30',
+            type: payload.type as string,
+            createdAt: payload.createdAt as string || new Date().toISOString(),
+            updatedAt: payload.updatedAt as string || new Date().toISOString(),
+            $createdAt: payload.$createdAt as string || new Date().toISOString(),
+            $updatedAt: payload.$updatedAt as string || new Date().toISOString()
+          };
+          
+          console.log('📋 Updated shift for today schedule:', newShift);
         }
-        
-        // Stats will be updated automatically by the shifts count refresh effect
-        
       } else if (eventType === 'DELETE') {
         console.log('🗑️ Processing shift deletion:', { shiftId: payload.$id, shiftDate, isToday: shiftDate === today });
         
-        // Remove from today's schedule
-        if (shiftDate === today) {
-          setTodaySchedule(prev => {
-            const exists = prev.some(s => s.$id === payload.$id);
-            if (!exists) {
-              console.log('⚠️ Shift not found in today schedule, skipping removal:', payload.$id);
-              return prev;
-            }
-            return prev.filter(s => s.$id !== payload.$id);
-          });
+        // For employee users, recalculate their weekly shifts count on deletion
+        if (!isManagerOrAdmin && payload.userId === userId) {
+          await silentRefreshDashboard();
         }
-        
-        // Stats will be updated automatically by the shifts count refresh effect
       }
     } catch {
       
       // Fallback to silent refresh if individual update fails
       await silentRefreshDashboard();
     }
-  }, [silentRefreshDashboard]);
+  }, [isManagerOrAdmin, userId, silentRefreshDashboard]);
 
   const handleLeaveUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {
@@ -1057,6 +1090,7 @@ export default function DashboardPage() {
               title: "Dashboard Updated",
               description: `${collection} ${eventTypeText}`,
               duration: 2000,
+              variant: hasDeleteEvent ? "destructive" : "success",
             });
           }
         }
