@@ -118,7 +118,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
     fetchWeeklyData();
   }, [fetchWeeklyData]);
 
-  // Real-time subscription for shifts
+  // Real-time subscription for shifts with instant updates
   useEffect(() => {
     if (!user) return;
 
@@ -128,24 +128,89 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
       ],
-      (response: { events: string[]; payload?: unknown }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: any) => {
         console.log('Weekly schedule real-time update received:', response);
         
-        // Handle different types of events
         const events = response.events || [];
-        const shouldRefresh = events.some((event: string) => 
-          event.includes('documents.create') ||
-          event.includes('documents.update') ||
-          event.includes('documents.delete')
-        );
-
-        if (shouldRefresh) {
-          console.log('Refreshing weekly schedule data due to real-time update...');
+        const payload = response.payload;
+        
+        // Check for specific event types
+        const hasCreateEvent = events.some((event: string) => event.includes('.create'));
+        const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
+        const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
+        
+        console.log('Event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
+        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          console.log(`Processing ${eventType} event for instant update...`, payload);
           
-          // Add a small delay to ensure the database has been updated
-          setTimeout(() => {
-            fetchWeeklyData();
-          }, 300);
+          // Get current week dates to check if this shift is relevant
+          const weekDates = getWeekDates();
+          const startDate = weekDates[0].date;
+          const endDate = weekDates[6].date;
+          
+          // Check if the shift date is within current week
+          const shiftDate = payload?.date?.split('T')[0];
+          if (shiftDate && shiftDate >= startDate && shiftDate <= endDate) {
+            
+            if (hasCreateEvent || hasUpdateEvent) {
+              // For CREATE/UPDATE: Get user info and update state directly
+              try {
+                const updatedUser = await userService.getUserById(payload.userId);
+                
+                setWeekSchedule(prevSchedule => {
+                  const newSchedule = [...prevSchedule];
+                  const dayIndex = newSchedule.findIndex(day => day.date === shiftDate);
+                  
+                  if (dayIndex !== -1) {
+                    const updatedDay = { ...newSchedule[dayIndex] };
+                    
+                    if (payload.onCallRole === 'PRIMARY') {
+                      updatedDay.primary = updatedUser;
+                    } else if (payload.onCallRole === 'BACKUP') {
+                      updatedDay.backup = updatedUser;
+                    }
+                    
+                    newSchedule[dayIndex] = updatedDay;
+                    console.log(`Instantly updated ${payload.onCallRole} for ${shiftDate}:`, updatedUser.firstName);
+                  }
+                  
+                  return newSchedule;
+                });
+              } catch (error) {
+                console.error('Error getting user for instant update, falling back to refetch:', error);
+                // Fallback to full refetch only if user fetch fails
+                setTimeout(() => {
+                  fetchWeeklyData();
+                }, 100);
+              }
+            } else if (hasDeleteEvent) {
+              // For DELETE: Remove assignment directly
+              setWeekSchedule(prevSchedule => {
+                const newSchedule = [...prevSchedule];
+                const dayIndex = newSchedule.findIndex(day => day.date === shiftDate);
+                
+                if (dayIndex !== -1) {
+                  const updatedDay = { ...newSchedule[dayIndex] };
+                  
+                  if (payload.onCallRole === 'PRIMARY') {
+                    updatedDay.primary = undefined;
+                  } else if (payload.onCallRole === 'BACKUP') {
+                    updatedDay.backup = undefined;
+                  }
+                  
+                  newSchedule[dayIndex] = updatedDay;
+                  console.log(`Instantly removed ${payload.onCallRole} assignment for ${shiftDate}`);
+                }
+                
+                return newSchedule;
+              });
+            }
+          } else {
+            console.log('Shift change outside current week, ignoring instant update');
+          }
         }
       }
     );
@@ -154,7 +219,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
       console.log('Cleaning up weekly schedule real-time subscription...');
       unsubscribe();
     };
-  }, [user, fetchWeeklyData]);
+  }, [user, getWeekDates, fetchWeeklyData]);
 
   const getUserInitials = (user: User | AuthUser) => {
     return `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
@@ -260,7 +325,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-semibold truncate">
-                              {day.primary.firstName} {day.primary.lastName.charAt(0)}.
+                              {day.primary.firstName}
                             </div>
                           </div>
                         </div>
@@ -290,7 +355,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-semibold truncate">
-                              {day.backup.firstName} {day.backup.lastName.charAt(0)}.
+                              {day.backup.firstName}
                             </div>
                           </div>
                         </div>
@@ -363,7 +428,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-semibold truncate">
-                              {day.primary.firstName} {day.primary.lastName.charAt(0)}.
+                              {day.primary.firstName}
                             </div>
                           </div>
                         </div>
@@ -393,7 +458,7 @@ export default function WeeklySchedule({ user, className }: WeeklyScheduleProps)
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-semibold truncate">
-                              {day.backup.firstName} {day.backup.lastName.charAt(0)}.
+                              {day.backup.firstName}
                             </div>
                           </div>
                         </div>

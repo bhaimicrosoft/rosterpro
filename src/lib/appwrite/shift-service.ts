@@ -91,15 +91,21 @@ export class ShiftService {
         throw new Error(`A ${shiftData.onCallRole.toLowerCase()} shift already exists for ${shiftData.date}. Please remove the existing assignment first.`);
       }
 
+      // Only include valid Appwrite attributes
+      const validData = {
+        userId: shiftData.userId,
+        date: shiftData.date,
+        onCallRole: shiftData.onCallRole,
+        status: shiftData.status || 'SCHEDULED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
       const response = await databases.createDocument(
         DATABASE_ID,
         COLLECTIONS.SHIFTS,
         'unique()',
-        {
-          ...shiftData,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
+        validData
       );
       return response as unknown as Shift;
     } catch (error) {
@@ -110,14 +116,21 @@ export class ShiftService {
 
   async updateShift(shiftId: string, shiftData: Partial<Omit<Shift, '$id' | 'createdAt' | 'updatedAt'>>): Promise<Shift> {
     try {
+      // Only include valid Appwrite attributes
+      const validData: Record<string, unknown> = {
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (shiftData.userId) validData.userId = shiftData.userId;
+      if (shiftData.date) validData.date = shiftData.date;
+      if (shiftData.onCallRole) validData.onCallRole = shiftData.onCallRole;
+      if (shiftData.status) validData.status = shiftData.status;
+
       const response = await databases.updateDocument(
         DATABASE_ID,
         COLLECTIONS.SHIFTS,
         shiftId,
-        {
-          ...shiftData,
-          updatedAt: new Date().toISOString()
-        }
+        validData
       );
       return response as unknown as Shift;
     } catch (error) {

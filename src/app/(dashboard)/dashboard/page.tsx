@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { DashboardStats, DashboardApprovalRequest, DashboardShift, Shift, User, LeaveRequest, SwapRequest } from '@/types';
+import { DashboardStats, DashboardApprovalRequest, DashboardShift, Shift, User, LeaveRequest, SwapRequest, LeaveType, LeaveStatus, SwapStatus } from '@/types';
 import { shiftService } from '@/lib/appwrite/shift-service';
 import { userService } from '@/lib/appwrite/user-service';
 import { leaveService } from '@/lib/appwrite/leave-service';
@@ -59,8 +59,8 @@ export default function DashboardPage() {
   // Form state for schedule dialog
   const [scheduleForm, setScheduleForm] = useState({
     date: '',
-    startTime: '',
-    endTime: '',
+    startTime: '07:30', // Fixed start time: 7:30 AM IST
+    endTime: '15:30',   // Fixed end time: 3:30 PM IST
     employeeId: '',
     onCallRole: 'PRIMARY' as 'PRIMARY' | 'BACKUP',
     notes: '',
@@ -262,6 +262,167 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
+  // Optimized handlers for different types of updates
+  const handleShiftUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const shiftDate = typeof payload?.date === 'string' ? payload.date.split('T')[0] : '';
+    
+    try {
+      if (eventType === 'CREATE' || eventType === 'UPDATE') {
+        // Get user info for the shift
+        const shiftUser = await userService.getUserById(payload.userId as string);
+        
+        // Update today's schedule if it's for today
+        if (shiftDate === today) {
+          setTodaySchedule(prev => {
+            const filtered = prev.filter(s => s.$id !== payload.$id);
+            if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
+              const newShift: DashboardShift = {
+                $id: payload.$id as string,
+                userId: payload.userId as string,
+                date: payload.date as string,
+                onCallRole: payload.onCallRole as 'PRIMARY' | 'BACKUP',
+                status: (payload.status as 'SCHEDULED' | 'COMPLETED' | 'SWAPPED') || 'SCHEDULED',
+                _employeeName: `${shiftUser.firstName} ${shiftUser.lastName}`,
+                startTime: '07:30',
+                endTime: '15:30',
+                type: payload.type as string,
+                createdAt: payload.createdAt as string || new Date().toISOString(),
+                updatedAt: payload.updatedAt as string || new Date().toISOString(),
+                $createdAt: payload.$createdAt as string || new Date().toISOString(),
+                $updatedAt: payload.$updatedAt as string || new Date().toISOString()
+              };
+              return [...filtered, newShift];
+            }
+            return filtered;
+          });
+        }
+        
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          todayShifts: shiftDate === today ? prev.todayShifts + (eventType === 'CREATE' ? 1 : 0) : prev.todayShifts,
+          upcomingShifts: prev.upcomingShifts + (eventType === 'CREATE' ? 1 : 0)
+        }));
+        
+      } else if (eventType === 'DELETE') {
+        // Remove from today's schedule
+        if (shiftDate === today) {
+          setTodaySchedule(prev => prev.filter(s => s.$id !== payload.$id));
+        }
+        
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          todayShifts: shiftDate === today ? Math.max(0, prev.todayShifts - 1) : prev.todayShifts,
+          upcomingShifts: Math.max(0, prev.upcomingShifts - 1)
+        }));
+      }
+    } catch (error) {
+      console.error('Error in handleShiftUpdate, falling back to full refresh:', error);
+      // Fallback to full refresh if individual update fails
+      await fetchDashboardData();
+    }
+  }, [fetchDashboardData]);
+
+  const handleLeaveUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
+    try {
+      if (eventType === 'CREATE') {
+        setStats(prev => ({
+          ...prev,
+          pendingLeaveRequests: prev.pendingLeaveRequests + 1
+        }));
+        
+        // Add to pending approvals if user can approve
+        if ((userRole === 'MANAGER' || userRole === 'ADMIN') && payload.status === 'PENDING') {
+          const requestUser = await userService.getUserById(payload.userId as string);
+          const newApproval: DashboardApprovalRequest = {
+            $id: payload.$id as string,
+            userId: payload.userId as string,
+            startDate: payload.startDate as string,
+            endDate: payload.endDate as string,
+            type: payload.type as LeaveType,
+            status: payload.status as LeaveStatus,
+            reason: payload.reason as string,
+            $createdAt: (payload.createdAt || payload.$createdAt) as string,
+            $updatedAt: (payload.updatedAt || payload.$updatedAt) as string,
+            _type: 'leave' as const,
+            _employeeName: `${requestUser.firstName} ${requestUser.lastName}`
+          };
+          setPendingApprovals(prev => [...prev, newApproval]);
+        }
+      } else if (eventType === 'UPDATE') {
+        // Update approval status
+        if (payload.status !== 'PENDING') {
+          setPendingApprovals(prev => prev.filter(a => a.$id !== payload.$id));
+          setStats(prev => ({
+            ...prev,
+            pendingLeaveRequests: Math.max(0, prev.pendingLeaveRequests - 1)
+          }));
+        }
+      } else if (eventType === 'DELETE') {
+        setPendingApprovals(prev => prev.filter(a => a.$id !== payload.$id));
+        setStats(prev => ({
+          ...prev,
+          pendingLeaveRequests: Math.max(0, prev.pendingLeaveRequests - 1)
+        }));
+      }
+    } catch (error) {
+      console.error('Error in handleLeaveUpdate, falling back to full refresh:', error);
+      await fetchDashboardData();
+    }
+  }, [userRole, fetchDashboardData]);
+
+  const handleSwapUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
+    try {
+      if (eventType === 'CREATE') {
+        setStats(prev => ({
+          ...prev,
+          pendingSwapRequests: prev.pendingSwapRequests + 1
+        }));
+        
+        // Add to pending approvals if user can approve
+        if ((userRole === 'MANAGER' || userRole === 'ADMIN') && payload.status === 'PENDING') {
+          const requestUser = await userService.getUserById(payload.requesterUserId as string);
+          const newApproval: DashboardApprovalRequest = {
+            $id: payload.$id as string,
+            requesterShiftId: payload.requesterShiftId as string,
+            requesterUserId: payload.requesterUserId as string,
+            targetShiftId: payload.targetShiftId as string,
+            targetUserId: payload.targetUserId as string,
+            reason: payload.reason as string,
+            status: payload.status as SwapStatus,
+            responseNotes: payload.responseNotes as string,
+            requestedAt: payload.requestedAt as string,
+            respondedAt: payload.respondedAt as string,
+            $createdAt: (payload.createdAt || payload.$createdAt) as string,
+            $updatedAt: (payload.updatedAt || payload.$updatedAt) as string,
+            _type: 'swap' as const,
+            _employeeName: `${requestUser.firstName} ${requestUser.lastName}`
+          };
+          setPendingApprovals(prev => [...prev, newApproval]);
+        }
+      } else if (eventType === 'UPDATE') {
+        if (payload.status !== 'PENDING') {
+          setPendingApprovals(prev => prev.filter(a => a.$id !== payload.$id));
+          setStats(prev => ({
+            ...prev,
+            pendingSwapRequests: Math.max(0, prev.pendingSwapRequests - 1)
+          }));
+        }
+      } else if (eventType === 'DELETE') {
+        setPendingApprovals(prev => prev.filter(a => a.$id !== payload.$id));
+        setStats(prev => ({
+          ...prev,
+          pendingSwapRequests: Math.max(0, prev.pendingSwapRequests - 1)
+        }));
+      }
+    } catch (error) {
+      console.error('Error in handleSwapUpdate, falling back to full refresh:', error);
+      await fetchDashboardData();
+    }
+  }, [userRole, fetchDashboardData]);
+
   // Real-time subscriptions for dashboard updates
   useEffect(() => {
     if (!user) return;
@@ -280,21 +441,49 @@ export default function DashboardPage() {
     
     const unsubscribe = client.subscribe(
       subscriptions,
-      (response: { events: string[] }) => {
-        console.log('Dashboard: Real-time update received:', response.events);
-        console.log('Dashboard: Response:', response);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: Record<string, any>) => {
+        console.log('Dashboard: Real-time update received:', response);
         
-        // Re-fetch dashboard data when any relevant collection changes
-        fetchDashboardData().catch(error => {
-          console.error('Dashboard: Error re-fetching data after real-time update:', error);
-        });
+        const events = response.events || [];
+        const payload = response.payload;
         
-        // Show toast notification
-        toast({
-          title: "Dashboard Updated",
-          description: "New data received",
-          duration: 2000,
-        });
+        // Check for specific event types
+        const hasCreateEvent = events.some((event: string) => event.includes('.create'));
+        const hasUpdateEvent = events.some((event: string) => event.includes('.update'));
+        const hasDeleteEvent = events.some((event: string) => event.includes('.delete'));
+        
+        console.log('Dashboard event types detected:', { hasCreateEvent, hasUpdateEvent, hasDeleteEvent });
+        
+        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
+          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          console.log('Dashboard: Processing real-time event', {
+            eventType,
+            payload: payload,
+            events: events
+          });
+          
+          // Handle different collection updates with targeted state updates
+          if (events.some((e: string) => e.includes('shifts'))) {
+            await handleShiftUpdate(payload, eventType);
+          } else if (events.some((e: string) => e.includes('leaves'))) {
+            await handleLeaveUpdate(payload, eventType);
+          } else if (events.some((e: string) => e.includes('swap'))) {
+            await handleSwapUpdate(payload, eventType);
+          }
+          
+          // Show toast notification with more specific message
+          const eventTypeText = hasCreateEvent ? 'created' : hasUpdateEvent ? 'updated' : 'deleted';
+          const collection = events[0]?.includes('shifts') ? 'Shift' : 
+                           events[0]?.includes('leaves') ? 'Leave request' : 
+                           events[0]?.includes('swap') ? 'Swap request' : 'Data';
+          
+          toast({
+            title: "Dashboard Updated",
+            description: `${collection} ${eventTypeText}`,
+            duration: 2000,
+          });
+        }
       }
     );
 
@@ -302,7 +491,7 @@ export default function DashboardPage() {
       console.log('Dashboard: Cleaning up real-time subscriptions');
       unsubscribe();
     };
-  }, [user, fetchDashboardData, toast]);
+  }, [user, toast, handleShiftUpdate, handleLeaveUpdate, handleSwapUpdate]);
 
   // Refresh function for manual refresh
   const refreshDashboard = useCallback(async () => {
@@ -344,11 +533,10 @@ export default function DashboardPage() {
       await shiftService.createShift({
         userId: scheduleForm.employeeId,
         date: scheduleForm.date,
-        startTime: scheduleForm.startTime || undefined,
-        endTime: scheduleForm.endTime || undefined,
         onCallRole: scheduleForm.onCallRole,
         status: 'SCHEDULED',
-        type: scheduleForm.notes || undefined,
+        $createdAt: new Date().toISOString(),
+        $updatedAt: new Date().toISOString(),
       });
 
       toast({
@@ -359,8 +547,8 @@ export default function DashboardPage() {
       // Reset form and close dialog
       setScheduleForm({
         date: '',
-        startTime: '',
-        endTime: '',
+        startTime: '07:30', // Fixed start time: 7:30 AM IST
+        endTime: '15:30',   // Fixed end time: 3:30 PM IST
         employeeId: '',
         onCallRole: 'PRIMARY',
         notes: '',
@@ -379,7 +567,7 @@ export default function DashboardPage() {
     } finally {
       setIsSchedulingShift(false);
     }
-  }, [scheduleForm, shiftService, toast, fetchDashboardData]);
+  }, [scheduleForm, toast, fetchDashboardData]);
 
   // Helper function to convert Tailwind bg classes to hex colors
   const getHexColor = useCallback((bgClass: string): string => {
@@ -1093,7 +1281,7 @@ export default function DashboardPage() {
           <DialogHeader>
             <DialogTitle>Schedule New Shift</DialogTitle>
             <DialogDescription>
-              Create a new shift assignment for a team member.
+              Create a new shift assignment for a team member. Shifts are scheduled from 7:30 AM to 3:30 PM IST.
             </DialogDescription>
           </DialogHeader>
           
@@ -1150,32 +1338,6 @@ export default function DashboardPage() {
                   <SelectItem value="BACKUP">Backup</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="startTime" className="text-right">
-                Start Time
-              </Label>
-              <Input
-                id="startTime"
-                type="time"
-                className="col-span-3"
-                value={scheduleForm.startTime}
-                onChange={(e) => setScheduleForm(prev => ({ ...prev, startTime: e.target.value }))}
-              />
-            </div>
-
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="endTime" className="text-right">
-                End Time
-              </Label>
-              <Input
-                id="endTime"
-                type="time"
-                className="col-span-3"
-                value={scheduleForm.endTime}
-                onChange={(e) => setScheduleForm(prev => ({ ...prev, endTime: e.target.value }))}
-              />
             </div>
 
             <div className="grid grid-cols-4 items-center gap-4">
