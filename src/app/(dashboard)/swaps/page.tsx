@@ -952,6 +952,12 @@ export default function SwapsPage() {
                           <User className="h-3 w-3" />
                           Requested by: {getUserName(request.requesterUserId)}
                         </div>
+                        {request.status === 'APPROVED' && request.targetUserId && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <CheckCircle className="h-3 w-3 text-green-600" />
+                            Approved by: {getUserName(request.targetUserId)}
+                          </div>
+                        )}
                         <div className="text-sm text-muted-foreground">
                           <span className="font-medium">Original Shift:</span> {getShiftDate(request.requesterShiftId)}
                           {request.targetShiftId && (
