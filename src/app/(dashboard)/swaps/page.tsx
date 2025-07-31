@@ -14,6 +14,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { SwapRequest, Shift, User as UserType } from '@/types';
 import { swapService, shiftService, userService } from '@/lib/appwrite/database';
+import { notificationService } from '@/lib/appwrite/notification-service';
 import { useToast } from '@/hooks/use-toast';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 

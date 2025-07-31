@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardStats, DashboardApprovalRequest, DashboardShift, Shift, User, LeaveRequest, SwapRequest, LeaveType, LeaveStatus, SwapStatus } from '@/types';
 import { shiftService, userService, leaveService, swapService } from '@/lib/appwrite/database';
+import { notificationService } from '@/lib/appwrite/notification-service';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { useToast } from '@/hooks/use-toast';
 
@@ -813,7 +814,6 @@ export default function DashboardPage() {
 
         // Create notification for employee
         try {
-          const { notificationService } = await import('@/lib/appwrite/notification-service');
           await notificationService.createLeaveResponseNotification(
             selectedApproval.userId!,
             'APPROVED',
@@ -833,7 +833,6 @@ export default function DashboardPage() {
 
         // Create notification for requester
         try {
-          const { notificationService } = await import('@/lib/appwrite/notification-service');
           const swapRequest = selectedApproval as SwapRequest;
           await notificationService.createSwapResponseNotification(
             swapRequest.requesterUserId,
@@ -884,7 +883,6 @@ export default function DashboardPage() {
 
         // Create notification for employee
         try {
-          const { notificationService } = await import('@/lib/appwrite/notification-service');
           await notificationService.createLeaveResponseNotification(
             selectedApproval.userId!,
             'REJECTED',
@@ -904,7 +902,6 @@ export default function DashboardPage() {
 
         // Create notification for requester
         try {
-          const { notificationService } = await import('@/lib/appwrite/notification-service');
           const swapRequest = selectedApproval as SwapRequest;
           await notificationService.createSwapResponseNotification(
             swapRequest.requesterUserId,
