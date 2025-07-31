@@ -807,7 +807,8 @@ export default function DashboardPage() {
     try {
       if (selectedApproval._type === 'leave') {
         await leaveService.updateLeaveRequest(selectedApproval.$id!, {
-          status: 'APPROVED' as LeaveStatus
+          status: 'APPROVED' as LeaveStatus,
+          managerComment: approvalComment || ''
         });
 
         // Create notification for employee
@@ -877,7 +878,8 @@ export default function DashboardPage() {
     try {
       if (selectedApproval._type === 'leave') {
         await leaveService.updateLeaveRequest(selectedApproval.$id!, {
-          status: 'REJECTED' as LeaveStatus
+          status: 'REJECTED' as LeaveStatus,
+          managerComment: approvalComment || ''
         });
 
         // Create notification for employee

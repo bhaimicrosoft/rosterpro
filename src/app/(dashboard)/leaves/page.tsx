@@ -51,6 +51,10 @@ export default function LeavesPage() {
   });
   const [validationError, setValidationError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Manager comment states
+  const [managerComment, setManagerComment] = useState('');
+  const [selectedRequestId, setSelectedRequestId] = useState<string>('');
 
   
 
@@ -414,27 +418,75 @@ export default function LeavesPage() {
     if (user?.role === 'EMPLOYEE') return;
 
     try {
-      await leaveService.updateLeaveRequest(requestId, { status: 'APPROVED' });
-      setLeaveRequests(prev => prev.map(req => 
-        req.$id === requestId ? { ...req, status: 'APPROVED' as const } : req
-      ));
-    } catch {
+      const comment = selectedRequestId === requestId ? managerComment.trim() : '';
+      await leaveService.updateLeaveRequest(requestId, { 
+        status: 'APPROVED',
+        managerComment: comment
+      });
       
+      setLeaveRequests(prev => prev.map(req => 
+        req.$id === requestId ? { 
+          ...req, 
+          status: 'APPROVED',
+          managerComment: comment
+        } : req
+      ));
+
+      toast({
+        title: "Leave request approved",
+        description: "The leave request has been approved successfully.",
+      });
+
+      // Clear comment if it was for this request
+      if (selectedRequestId === requestId) {
+        setSelectedRequestId('');
+        setManagerComment('');
+      }
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to approve leave request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [user?.role]);
+  }, [user?.role, selectedRequestId, managerComment, toast]);
 
   const handleRejectRequest = useCallback(async (requestId: string) => {
     if (user?.role === 'EMPLOYEE') return;
 
     try {
-      await leaveService.updateLeaveRequest(requestId, { status: 'REJECTED' });
-      setLeaveRequests(prev => prev.map(req => 
-        req.$id === requestId ? { ...req, status: 'REJECTED' as const } : req
-      ));
-    } catch {
+      const comment = selectedRequestId === requestId ? managerComment.trim() : '';
+      await leaveService.updateLeaveRequest(requestId, { 
+        status: 'REJECTED',
+        managerComment: comment
+      });
       
+      setLeaveRequests(prev => prev.map(req => 
+        req.$id === requestId ? { 
+          ...req, 
+          status: 'REJECTED',
+          managerComment: comment
+        } : req
+      ));
+
+      toast({
+        title: "Leave request rejected",
+        description: "The leave request has been rejected successfully.",
+      });
+
+      // Clear comment if it was for this request
+      if (selectedRequestId === requestId) {
+        setSelectedRequestId('');
+        setManagerComment('');
+      }
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to reject leave request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [user?.role]);
+  }, [user?.role, selectedRequestId, managerComment, toast]);
 
   const handleCancelRequest = useCallback(async (requestId: string) => {
     try {
@@ -701,6 +753,26 @@ export default function LeavesPage() {
                             <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded break-words">
                               {request.reason}
                             </p>
+                            
+                            {/* Manager Comment Input Section */}
+                            {user.role !== 'EMPLOYEE' && request.status === 'PENDING' && (
+                              <div className="mt-3 space-y-2">
+                                <Label htmlFor={`comment-${request.$id}`} className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                                  Manager Comment (Optional):
+                                </Label>
+                                <Textarea
+                                  id={`comment-${request.$id}`}
+                                  placeholder="Add a comment for this leave request..."
+                                  className="min-h-[60px] text-sm resize-none"
+                                  value={selectedRequestId === request.$id ? managerComment : ''}
+                                  onChange={(e) => {
+                                    setSelectedRequestId(request.$id);
+                                    setManagerComment(e.target.value);
+                                  }}
+                                />
+                              </div>
+                            )}
+                            
                             {request.managerComment && (
                               <div className="mt-2">
                                 <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Comment:</p>
