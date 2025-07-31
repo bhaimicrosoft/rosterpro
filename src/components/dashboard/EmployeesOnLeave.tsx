@@ -60,7 +60,11 @@ const formatDate = (dateStr: string) => {
 const getDateRange = () => {
   const today = new Date();
   const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay()); // Start from Sunday
+  
+  // Calculate Monday as start of week (1 = Monday, 0 = Sunday)
+  const dayOfWeek = today.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday (0), go back 6 days to Monday
+  startOfWeek.setDate(today.getDate() - daysFromMonday);
   
   const dates = [];
   for (let i = 0; i < 7; i++) {
