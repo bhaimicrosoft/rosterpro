@@ -1,18 +1,5 @@
 {
   "version": 2,
-  "env": {
-    "NEXT_PUBLIC_APPWRITE_ENDPOINT": "@appwrite_endpoint",
-    "NEXT_PUBLIC_APPWRITE_PROJECT_ID": "@appwrite_project_id",
-    "APPWRITE_API_KEY": "@appwrite_api_key",
-    "APPWRITE_DEV_KEY": "@appwrite_dev_key",
-    "NEXT_PUBLIC_DATABASE_ID": "@database_id",
-    "NEXT_PUBLIC_USERS_COLLECTION_ID": "@users_collection_id",
-    "NEXT_PUBLIC_SHIFTS_COLLECTION_ID": "@shifts_collection_id",
-    "NEXT_PUBLIC_LEAVE_REQUESTS_COLLECTION_ID": "@leave_requests_collection_id",
-    "NEXT_PUBLIC_SWAP_REQUESTS_COLLECTION_ID": "@swap_requests_collection_id",
-    "NEXT_PUBLIC_NOTIFICATIONS_COLLECTION_ID": "@notifications_collection_id",
-    "DEFAULT_USER_PASSWORD": "@default_user_password"
-  },
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 30
