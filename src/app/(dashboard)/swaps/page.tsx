@@ -436,7 +436,6 @@ export default function SwapsPage() {
 
       // Send notification to requester
       try {
-        const { notificationService } = await import('@/lib/appwrite/notification-service');
         await notificationService.createSwapResponseNotification(
           swapRequest.requesterUserId,
           'APPROVED',
@@ -465,7 +464,6 @@ export default function SwapsPage() {
 
       // Send notification to requester
       try {
-        const { notificationService } = await import('@/lib/appwrite/notification-service');
         await notificationService.createSwapResponseNotification(
           swapRequest.requesterUserId,
           'REJECTED',
@@ -508,7 +506,6 @@ export default function SwapsPage() {
 
       // Send notification to requester
       try {
-        const { notificationService } = await import('@/lib/appwrite/notification-service');
         await notificationService.createSwapResponseNotification(
           swapRequest.requesterUserId,
           'APPROVED',
@@ -560,7 +557,6 @@ export default function SwapsPage() {
 
       // Send notification to requester
       try {
-        const { notificationService } = await import('@/lib/appwrite/notification-service');
         await notificationService.createSwapResponseNotification(
           swapRequest.requesterUserId,
           'REJECTED',
