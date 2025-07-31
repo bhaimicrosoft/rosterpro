@@ -15,9 +15,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { CalendarDays, Loader2 } from 'lucide-react';
 import { User, AuthUser } from '@/types';
-import { shiftService } from '@/lib/appwrite/shift-service';
-import { userService } from '@/lib/appwrite/user-service';
-import { leaveService } from '@/lib/appwrite/database';
+import { shiftService, userService, leaveService } from '@/lib/appwrite/database';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
 import DraggableEmployeeBadge from './DraggableEmployeeBadge';
@@ -29,7 +27,7 @@ const deduplicateTeamMembers = (members: User[]): User[] => {
   const seen = new Set<string>();
   return members.filter(member => {
     if (seen.has(member.$id)) {
-      console.log('⚠️ WeeklySchedule: Removing duplicate team member:', member.$id, member.firstName, member.lastName);
+
       return false;
     }
     seen.add(member.$id);
@@ -76,18 +74,10 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
 
     // Extract user ID from draggableId (format: userId-sourceId or just userId for team members)
     const userId = draggableId.split('-')[0];
-    
-    console.log('🎯 Drag end debug:', { 
-      draggableId, 
-      userId, 
-      destinationId: destination?.droppableId || 'null', 
-      sourceId: source.droppableId
-    });
 
     // Handle drag outside droppable areas (destination is null)
     if (!destination) {
-      console.log('🗑️ Dragged outside - checking for deletion');
-      
+
       // Check if the source was from an assigned shift slot (not from team-members)
       if (source.droppableId !== 'team-members') {
         // Extract date and role from source droppableId (format: YYYY-MM-DD-role)
@@ -97,9 +87,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         if (sourceIdParts.length >= 4) {
           const sourceRole = sourceIdParts[sourceIdParts.length - 1]; // Last part is the role
           const sourceDate = sourceIdParts.slice(0, -1).join('-'); // Everything before the last part is the date
-          
-          console.log('📅 Source shift details:', { sourceDate, sourceRole, sourceIdParts });
-          
+
           // Validate date format before proceeding
           if (sourceDate && sourceRole && /^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) {
             // Set up pending delete operation and show dialog
@@ -111,10 +99,10 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
             });
             setIsDeleteDialogOpen(true);
           } else {
-            console.log('⚠️ Invalid date format or missing data:', { sourceDate, sourceRole, sourceIdParts });
+
           }
         } else {
-          console.log('⚠️ Invalid droppableId format:', source.droppableId);
+
         }
       }
       return; // Always return when destination is null
@@ -148,14 +136,13 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         console.error('❌ User is on approved leave for this date');
         
         // Find user name for better error message
-        const userObj = teamMembers.find(tm => tm.$id === userId);
-        const userName = userObj ? `${userObj.firstName} ${userObj.lastName}` : 'This employee';
+        const user = teamMembers.find(tm => tm.$id === userId);
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Employee';
         
         toast({
-          title: "Employee on Leave",
-          description: `${userName} is on approved leave for ${date}. Choose another employee or a date when they are available.`,
-          variant: "default",
-          className: "border-blue-200 bg-blue-50 text-blue-800",
+          title: "Cannot assign shift",
+          description: `${userName} is on approved leave for ${date}. Please check their leave schedule.`,
+          variant: "destructive",
         });
         
         setCreatingShift(null);
@@ -189,27 +176,21 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         const slotId = `${date}-${role}`;
         setCreatingShift(slotId);
         
-        // Create new shift with proper date format
+        // Create new shift with proper date format (same as Schedule page)
         const shiftDate = `${date}T07:30:00.000Z`;
-        console.log('📅 Creating shift with date:', shiftDate);
-        
+
         await shiftService.createShift({
-          date: shiftDate,
-          startTime: '07:30',
-          endTime: '15:30',
           userId,
+          date: shiftDate,
           onCallRole: role.toUpperCase() as 'PRIMARY' | 'BACKUP',
           status: 'SCHEDULED',
-          $createdAt: new Date().toISOString(),
-          $updatedAt: new Date().toISOString(),
         });
 
         // Trigger callback to refresh data
         if (onScheduleUpdate) {
           onScheduleUpdate();
         }
-        
-        console.log('✅ Shift operation completed successfully');
+
         setCreatingShift(null);
       }
     } catch {
@@ -238,8 +219,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       if (onScheduleUpdate) {
         onScheduleUpdate();
       }
-      
-      console.log('✅ Shift replacement completed successfully');
+
     } catch {
       console.error('❌ Error replacing shift');
       alert('Failed to replace shift. Please try again.');
@@ -270,14 +250,13 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       
       if (shiftToDelete) {
         await shiftService.deleteShift(shiftToDelete.$id);
-        console.log('✅ Shift deleted successfully');
-        
+
         // Trigger callback to refresh data
         if (onScheduleUpdate) {
           onScheduleUpdate();
         }
       } else {
-        console.log('⚠️ No matching shift found to delete');
+
       }
     } catch {
       console.error('❌ Error deleting shift');
@@ -325,43 +304,60 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
     
     try {
       setLoading(true);
-      
-      
+
       // Get this week's date range
       const weekDates = getWeekDates();
       const startDate = weekDates[0].date;
       const endDate = weekDates[6].date;
-      
-      
-      // Fetch shifts and users data
-      const [shiftsData, usersData] = await Promise.all([
+
+      // Fetch shifts, users, and leave data
+      const [shiftsData, usersData, leavesData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
-        userService.getAllUsers() // Always fetch all users so employees can see full team schedule
+        userService.getAllUsers(), // Always fetch all users so employees can see full team schedule
+        leaveService.getApprovedLeavesByDateRange(startDate, endDate)
       ]);
-      
+
       // Create user map for quick lookup - handle both User and AuthUser types
       const userMap = new Map();
       usersData.forEach((u: User | AuthUser) => {
         userMap.set(u.$id, u);
       });
       
-      // Map shifts to week days
+      // Map shifts to week days with leave information
       const scheduleData = weekDates.map(day => {
         const dayShifts = shiftsData.filter(shift => 
           shift.date.split('T')[0] === day.date
         );
         
+        // Find employees on leave for this specific date
+        const employeesOnLeave = leavesData
+          .filter(leave => {
+            const leaveStart = new Date(leave.startDate);
+            const leaveEnd = new Date(leave.endDate);
+            const currentDate = new Date(day.date);
+            return currentDate >= leaveStart && currentDate <= leaveEnd;
+          })
+          .map(leave => {
+            const user = userMap.get(leave.userId);
+            return {
+              userId: leave.userId,
+              userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
+              leaveType: leave.type,
+              isOnLeave: true
+            };
+          });
+
         const primaryShift = dayShifts.find(s => s.onCallRole === 'PRIMARY');
         const backupShift = dayShifts.find(s => s.onCallRole === 'BACKUP');
         
         return {
           ...day,
           primary: primaryShift ? userMap.get(primaryShift.userId) : undefined,
-          backup: backupShift ? userMap.get(backupShift.userId) : undefined
+          backup: backupShift ? userMap.get(backupShift.userId) : undefined,
+          employeesOnLeave
         };
       });
-      
-      
+
       setWeekSchedule(scheduleData);
     } catch {
       
@@ -375,17 +371,17 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
     if (!user) return;
     
     try {
-      
-      
+
       // Get this week's date range
       const weekDates = getWeekDates();
       const startDate = weekDates[0].date;
       const endDate = weekDates[6].date;
       
-      // Fetch shifts and users data
-      const [shiftsData, usersData] = await Promise.all([
+      // Fetch shifts, users, and leave data
+      const [shiftsData, usersData, leavesData] = await Promise.all([
         shiftService.getShiftsByDateRange(startDate, endDate),
-        userService.getAllUsers()
+        userService.getAllUsers(),
+        leaveService.getApprovedLeavesByDateRange(startDate, endDate)
       ]);
       
       // Create user map for quick lookup
@@ -394,11 +390,29 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         userMap.set(u.$id, u);
       });
       
-      // Map shifts to week days
+      // Map shifts to week days with leave information
       const scheduleData = weekDates.map(day => {
         const dayShifts = shiftsData.filter(shift => 
           shift.date.split('T')[0] === day.date
         );
+        
+        // Find employees on leave for this specific date
+        const employeesOnLeave = leavesData
+          .filter(leave => {
+            const leaveStart = new Date(leave.startDate);
+            const leaveEnd = new Date(leave.endDate);
+            const currentDate = new Date(day.date);
+            return currentDate >= leaveStart && currentDate <= leaveEnd;
+          })
+          .map(leave => {
+            const user = userMap.get(leave.userId);
+            return {
+              userId: leave.userId,
+              userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown',
+              leaveType: leave.type,
+              isOnLeave: true
+            };
+          });
         
         const primaryShift = dayShifts.find(s => s.onCallRole === 'PRIMARY');
         const backupShift = dayShifts.find(s => s.onCallRole === 'BACKUP');
@@ -406,7 +420,8 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         return {
           ...day,
           primary: primaryShift ? userMap.get(primaryShift.userId) : undefined,
-          backup: backupShift ? userMap.get(backupShift.userId) : undefined
+          backup: backupShift ? userMap.get(backupShift.userId) : undefined,
+          employeesOnLeave
         };
       });
       
@@ -425,16 +440,13 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
   useEffect(() => {
     if (!user) return;
 
-    
-    
     const unsubscribe = client.subscribe(
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        
-        
+
         const events = response.events || [];
         const payload = response.payload;
         
@@ -448,9 +460,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         const hasDeleteEvent = events.some((event: string) => 
           event.includes('.delete') || event.includes('documents.delete')
         );
-        
-        
-        
+
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           // Get current week dates to check if this shift is relevant
           const weekDates = getWeekDates();

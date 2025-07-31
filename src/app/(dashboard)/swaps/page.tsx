@@ -60,6 +60,15 @@ export default function SwapsPage() {
         incomingRequests = allRequests.filter(req => 
           req.targetUserId === user.$id && req.requesterUserId !== user.$id
         );
+
+        // Deduplicate arrays to prevent key conflicts
+        requests = requests.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+        incomingRequests = incomingRequests.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+
         shifts = await shiftService.getShiftsByUser(user.$id);
         
         // Filter to only include current and future shifts
@@ -101,8 +110,7 @@ export default function SwapsPage() {
     if (!user) return;
 
     try {
-      
-      
+
       let requests: SwapRequest[] = [];
       let incomingRequests: SwapRequest[] = [];
       let users: UserType[] = [];
@@ -117,6 +125,15 @@ export default function SwapsPage() {
         incomingRequests = allRequests.filter(req => 
           req.targetUserId === user.$id && req.requesterUserId !== user.$id
         );
+
+        // Deduplicate arrays to prevent key conflicts
+        requests = requests.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+        incomingRequests = incomingRequests.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+
         users = await userService.getAllUsers();
         setTeamMembers(users.filter(u => u.$id !== user.$id)); // Exclude self from target list
       } else {
@@ -154,8 +171,6 @@ export default function SwapsPage() {
   useEffect(() => {
     if (!user) return;
 
-    
-    
     const unsubscribe = client.subscribe(
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SWAP_REQUESTS}.documents`,
@@ -163,8 +178,7 @@ export default function SwapsPage() {
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        
-        
+
         const events = response.events || [];
         const payload = response.payload;
         
@@ -178,13 +192,10 @@ export default function SwapsPage() {
         const hasDeleteEvent = events.some((event: string) => 
           event.includes('.delete') || event.includes('documents.delete')
         );
-        
-        
 
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          
-          
+
           try {
             // Handle swap request updates
             if (events.some((e: string) => e.includes('swap'))) {
@@ -828,7 +839,7 @@ export default function SwapsPage() {
             ) : (
               <div className="space-y-4">
                 {filteredRequests.map((request) => (
-                  <div key={request.$id} className="flex items-center justify-between p-6 border rounded-xl hover:shadow-md transition-shadow bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
+                  <div key={`outgoing-${request.$id}`} className="flex items-center justify-between p-6 border rounded-xl hover:shadow-md transition-shadow bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
                     <div className="space-y-2 flex-1">
                       <div className="flex items-center space-x-3">
                         <ArrowLeftRight className="h-5 w-5 text-indigo-600" />

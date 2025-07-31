@@ -49,8 +49,7 @@ import {
   ChevronDown,
   CheckCheck,
 } from 'lucide-react';
-import { notificationService } from '@/lib/appwrite/notification-service';
-import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
+import { notificationService } from '@/lib/appwrite/database';
 import { Notification } from '@/types';
 
 interface DashboardLayoutProps {
@@ -82,56 +81,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     fetchNotifications();
   }, [user?.$id]);
 
-  // Real-time subscription for notifications
-  useEffect(() => {
-    if (!user?.$id) return;
-
-    const unsubscribe = client.subscribe(
-      `databases.${DATABASE_ID}.collections.${COLLECTIONS.NOTIFICATIONS}.documents`,
-      (response) => {
-        const events = response.events || [];
-        const payload = response.payload as { userId?: string; $id?: string } & Notification;
-        
-        // Check if this notification is for the current user
-        if (payload?.userId === user.$id) {
-          const hasCreateEvent = events.some((event: string) => 
-            event.includes('.create') || event.includes('documents.create')
-          );
-          const hasUpdateEvent = events.some((event: string) => 
-            event.includes('.update') || event.includes('documents.update')
-          );
-          const hasDeleteEvent = events.some((event: string) => 
-            event.includes('.delete') || event.includes('documents.delete')
-          );
-
-          if (hasCreateEvent) {
-            // Add new notification
-            setNotifications(prev => [payload as Notification, ...prev]);
-          } else if (hasUpdateEvent) {
-            // Update existing notification
-            setNotifications(prev => 
-              prev.map(n => n.$id === payload.$id ? payload as Notification : n)
-            );
-          } else if (hasDeleteEvent) {
-            // Remove deleted notification
-            setNotifications(prev => prev.filter(n => n.$id !== payload.$id));
-          }
-        }
-      }
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, [user?.$id]);
-
   // Get unread notification count
   const unreadCount = notifications.filter(n => !n.read).length;
 
     // Mark notification as read
   const markAsRead = async (notificationId: string) => {
     try {
-      await notificationService.markNotificationAsRead(notificationId);
+      await notificationService.markAsRead(notificationId);
       setNotifications(prev => 
         prev.map(n => n.$id === notificationId ? { ...n, read: true } : n)
       );
@@ -144,7 +100,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const markAllAsRead = async () => {
     if (user?.$id) {
       try {
-        await notificationService.markAllNotificationsAsRead(user.$id);
+        await notificationService.markAllAsRead(user.$id);
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       } catch {
         // Failed to mark all notifications as read
@@ -396,7 +352,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={() => router.push('/dashboard/profile')}>
+                <DropdownMenuItem onClick={() => router.push('/profile')}>
                   <User className="mr-2 h-4 w-4" />
                   Profile
                 </DropdownMenuItem>

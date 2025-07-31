@@ -54,20 +54,20 @@ export interface SwapRequest {
   $id: string;
   requesterShiftId: string;
   requesterUserId: string;
-  targetShiftId: string; // Made required to match schema
+  targetShiftId?: string;
   targetUserId?: string;
   reason: string;
   status: SwapStatus;
   responseNotes?: string;
   managerComment?: string;
   requestedAt: string;
-  respondedAt: string; // Made required to match schema
+  respondedAt?: string;
   $createdAt: string;
   $updatedAt: string;
 }
 
 // Notification types
-export type NotificationType = 'SHIFT_ASSIGNED' | 'SHIFT_SWAPPED' | 'LEAVE_APPROVED' | 'LEAVE_REQUEST' | 'LEAVE_REJECTED';
+export type NotificationType = 'leave_request' | 'leave_response' | 'swap_request' | 'swap_response' | 'shift_assignment' | 'general';
 
 export interface Notification {
   $id: string;
@@ -76,6 +76,7 @@ export interface Notification {
   title: string;
   message: string;
   read: boolean;
+  relatedId?: string; // ID of related leave request, swap request, etc.
   $createdAt: string;
 }
 

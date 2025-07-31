@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { CalendarX, Users, Clock } from 'lucide-react';
 import { WeeklyLeaveData, LeaveType, User } from '@/types';
 import { leaveService } from '@/lib/appwrite/database';
-import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 interface EmployeesOnLeaveProps {
   teamMembers: User[];
@@ -76,116 +75,63 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
   const [weeklyLeaveData, setWeeklyLeaveData] = useState<WeeklyLeaveData>({});
   const [loadingLeaves, setLoadingLeaves] = useState(false);
 
-  const fetchWeeklyLeaveData = useCallback(async () => {
-    if (!teamMembers || teamMembers.length === 0) return;
-    
-    setLoadingLeaves(true);
-    try {
-      const dates = getDateRange();
-      const startDate = dates[0];
-      const endDate = dates[dates.length - 1];
+  useEffect(() => {
+    const fetchWeeklyLeaveData = async () => {
+      if (!teamMembers || teamMembers.length === 0) return;
       
-      // Get all approved leaves for this week
-      const leaves = await leaveService.getApprovedLeavesByDateRange(startDate, endDate);
-      
-      // Build weekly leave data structure
-      const weeklyData: WeeklyLeaveData = {};
-      
-      // Initialize all dates
-      dates.forEach(date => {
-        weeklyData[date] = [];
-      });
-      
-      // Process each leave request
-      leaves.forEach(leave => {
-        const user = teamMembers.find(tm => tm.$id === leave.userId);
-        if (!user) return;
+      setLoadingLeaves(true);
+      try {
+        const dates = getDateRange();
+        const startDate = dates[0];
+        const endDate = dates[dates.length - 1];
         
-        // Check each date in the leave range
-        const leaveStart = new Date(leave.startDate);
-        const leaveEnd = new Date(leave.endDate);
+        // Get all approved leaves for this week
+        const leaves = await leaveService.getApprovedLeavesByDateRange(startDate, endDate);
         
+        // Build weekly leave data structure
+        const weeklyData: WeeklyLeaveData = {};
+        
+        // Initialize all dates
         dates.forEach(date => {
-          const currentDate = new Date(date);
-          if (currentDate >= leaveStart && currentDate <= leaveEnd) {
-            weeklyData[date].push({
-              $id: `${leave.$id}-${date}`,
-              userId: user.$id,
-              userName: formatDisplayName(user.firstName, user.lastName),
-              date,
-              leaveType: leave.type,
-              leaveId: leave.$id,
-              startDate: leave.startDate,
-              endDate: leave.endDate
-            });
-          }
+          weeklyData[date] = [];
         });
-      });
-      
-      setWeeklyLeaveData(weeklyData);
-    } catch (error) {
-      console.error('Error fetching weekly leave data:', error);
-    } finally {
-      setLoadingLeaves(false);
-    }
-  }, [teamMembers]);
-
-  // Initial data fetch
-  useEffect(() => {
-    fetchWeeklyLeaveData();
-  }, [fetchWeeklyLeaveData]);
-
-  // Real-time subscription for leave events
-  useEffect(() => {
-    if (!teamMembers || teamMembers.length === 0) return;
-
-    console.log('🔗 Setting up real-time subscription for EmployeesOnLeave component...');
-
-    const unsubscribe = client.subscribe(
-      [`databases.${DATABASE_ID}.collections.${COLLECTIONS.LEAVES}.documents`],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      async (response: any) => {
-        const events = response.events || [];
-        const payload = response.payload;
         
-        console.log('📡 EmployeesOnLeave: Received real-time event:', { events, payload });
-        
-        // Check for leave-related events with more comprehensive patterns
-        const hasCreateEvent = events.some((event: string) => 
-          event.includes('.create') || 
-          event.includes('documents.create') ||
-          event.includes('.documents.*.create')
-        );
-        const hasUpdateEvent = events.some((event: string) => 
-          event.includes('.update') || 
-          event.includes('documents.update') ||
-          event.includes('.documents.*.update')
-        );
-        const hasDeleteEvent = events.some((event: string) => 
-          event.includes('.delete') || 
-          event.includes('documents.delete') ||
-          event.includes('.documents.*.delete')
-        );
-        
-        if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
-          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          console.log(`🔄 EmployeesOnLeave: ${eventType} event detected, refreshing leave data...`);
+        // Process each leave request
+        leaves.forEach(leave => {
+          const user = teamMembers.find(tm => tm.$id === leave.userId);
+          if (!user) return;
           
-          // Add a small delay to ensure the database has been updated
-          setTimeout(async () => {
-            await fetchWeeklyLeaveData();
-          }, 200);
-        } else {
-          console.log('ℹ️ EmployeesOnLeave: Event received but no action needed:', events);
-        }
+          // Check each date in the leave range
+          const leaveStart = new Date(leave.startDate);
+          const leaveEnd = new Date(leave.endDate);
+          
+          dates.forEach(date => {
+            const currentDate = new Date(date);
+            if (currentDate >= leaveStart && currentDate <= leaveEnd) {
+              weeklyData[date].push({
+                $id: `${leave.$id}-${date}`,
+                userId: user.$id,
+                userName: formatDisplayName(user.firstName, user.lastName),
+                date,
+                leaveType: leave.type,
+                leaveId: leave.$id,
+                startDate: leave.startDate,
+                endDate: leave.endDate
+              });
+            }
+          });
+        });
+        
+        setWeeklyLeaveData(weeklyData);
+      } catch (error) {
+        console.error('Error fetching weekly leave data:', error);
+      } finally {
+        setLoadingLeaves(false);
       }
-    );
-
-    return () => {
-      console.log('🔌 EmployeesOnLeave: Cleaning up real-time subscription...');
-      unsubscribe();
     };
-  }, [teamMembers, fetchWeeklyLeaveData]);
+
+    fetchWeeklyLeaveData();
+  }, [teamMembers]);
 
   // Calculate total employees on leave this week
   const totalEmployeesOnLeave = Object.values(weeklyLeaveData)
@@ -247,7 +193,7 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
                     </Badge>
                   </div>
                   
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="space-y-2">
                     {employeesOnLeave.map((employee) => {
                       const user = teamMembers.find(tm => tm.$id === employee.userId);
                       if (!user) return null;
@@ -270,7 +216,7 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
                           
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-sm truncate">
-                              {employee.userName.split(" ")[0]}
+                              {employee.userName}
                             </p>
                             <div className="flex items-center gap-2 mt-1">
                               <Badge 

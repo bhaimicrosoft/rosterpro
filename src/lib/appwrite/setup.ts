@@ -86,15 +86,8 @@ const DEFAULT_USERS = [
 
 export const setupDatabase = async () => {
   try {
-    
 
     // Create database collections (this should be done in Appwrite console)
-    
-    
-    
-    
-    
-    
 
     return {
       success: true,
@@ -113,9 +106,8 @@ export const setupDatabase = async () => {
 
 // Helper function to create auth users (this needs to be run server-side)
 export const createAuthUsers = async () => {
-  
-  
-  const defaultPassword = 'P@$$w0rd1!';
+
+  const defaultPassword = process.env.DEFAULT_USER_PASSWORD || 'ChangeMe123!';
   const results = [];
 
   for (const userData of DEFAULT_USERS) {

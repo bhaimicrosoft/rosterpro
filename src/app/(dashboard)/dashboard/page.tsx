@@ -3,10 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardStats, DashboardApprovalRequest, DashboardShift, Shift, User, LeaveRequest, SwapRequest, LeaveType, LeaveStatus, SwapStatus } from '@/types';
-import { shiftService } from '@/lib/appwrite/shift-service';
-import { userService } from '@/lib/appwrite/user-service';
-import { leaveService } from '@/lib/appwrite/database';
-import { swapService } from '@/lib/appwrite/swap-service';
+import { shiftService, userService, leaveService, swapService } from '@/lib/appwrite/database';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { useToast } from '@/hooks/use-toast';
 
@@ -53,7 +50,7 @@ const deduplicateTeamMembers = (members: User[]): User[] => {
   const seen = new Set<string>();
   return members.filter(member => {
     if (seen.has(member.$id)) {
-      console.log('⚠️ Removing duplicate team member:', member.$id, member.firstName, member.lastName);
+
       return false;
     }
     seen.add(member.$id);
@@ -62,7 +59,7 @@ const deduplicateTeamMembers = (members: User[]): User[] => {
 };
 
 export default function DashboardPage() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   
   // Core state
@@ -151,41 +148,11 @@ export default function DashboardPage() {
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days from today = 7 days from tomorrow
 
-      // Calculate current week range (Monday to Sunday)
-      const currentDate = new Date();
-      const startOfWeek = new Date(currentDate);
-      const day = startOfWeek.getDay();
-      const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-      startOfWeek.setDate(diff);
-      
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-      
-      const weekStart = startOfWeek.toISOString().split('T')[0];
-      const weekEnd = endOfWeek.toISOString().split('T')[0];
-
       // Create proper date ranges for querying (add time components)
       const todayStart = `${today}T00:00:00.000Z`;
       const todayEnd = `${today}T23:59:59.999Z`;
       const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
       const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
-      const weekStartTime = `${weekStart}T00:00:00.000Z`;
-      const weekEndTime = `${weekEnd}T23:59:59.999Z`;
-
-      console.log('📅 Dashboard data fetch - Date calculations:', { 
-        today, 
-        tomorrow,
-        sevenDaysFromTomorrow,
-        todayStart,
-        todayEnd,
-        tomorrowStart,
-        sevenDaysEnd,
-        weekStart,
-        weekEnd,
-        note: 'Upcoming shifts: 7 days from tomorrow, excluding today from results. My Shifts: current week only',
-        currentDate: new Date().toString(),
-        currentUTC: new Date().toISOString()
-      });
 
       // Handle UPPERCASE roles from Appwrite
       // Use the component-level isManagerOrAdmin variable
@@ -194,14 +161,12 @@ export default function DashboardPage() {
         allUsers,
         todayShifts,
         upcomingShiftsRaw,
-        weeklyShifts, // For "My Shifts" calculation
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
         shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd), // Next 7 days from tomorrow
-        shiftService.getShiftsByDateRange(weekStartTime, weekEndTime), // Current week for "My Shifts"
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
@@ -211,14 +176,6 @@ export default function DashboardPage() {
         const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
         return shiftDate !== today; // Exclude today
       });
-
-      // Calculate My Shifts for current week (including weekends, PRIMARY or BACKUP)
-      const myWeeklyShifts = isManagerOrAdmin 
-        ? 0 
-        : weeklyShifts.filter((s: Shift) => 
-            s.userId === userId && 
-            (s.onCallRole === 'PRIMARY' || s.onCallRole === 'BACKUP')
-          ).length;
 
       // Filter data based on user role (use allUsers for filtering)
       const displayUsers = allUsers;
@@ -230,22 +187,18 @@ export default function DashboardPage() {
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
       const filteredSwapRequests = isManagerOrAdmin 
         ? allSwapRequests 
-        : allSwapRequests.filter((sr: SwapRequest) => 
-            sr.requesterUserId === userId || sr.targetUserId === userId
-          );
+        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
 
       // Build team members list with user names
       const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
       
       // Calculate dashboard stats - fix employee count to only include employees
       const dashboardStats: DashboardStats = {
-        totalEmployees: isManagerOrAdmin ? employeesOnly.length : myWeeklyShifts, // For employees, show their weekly shifts count
+        totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
         upcomingShifts: upcomingShifts.length,
       };
-
-      
 
       // Build pending approvals (only for managers/admins)
       const pendingApprovalsList: DashboardApprovalRequest[] = [];
@@ -279,7 +232,7 @@ export default function DashboardPage() {
             }
           });
       } else {
-        // For employees, add their own pending leave requests
+        // For employees, add their own pending requests
         filteredLeaveRequests
           .filter((lr: LeaveRequest) => lr.status === 'PENDING')
           .forEach((lr: LeaveRequest) => {
@@ -290,41 +243,19 @@ export default function DashboardPage() {
             });
           });
 
-        // For employees, add swap requests they made AND swap requests directed at them
         filteredSwapRequests
           .filter((sr: SwapRequest) => sr.status === 'PENDING')
           .forEach((sr: SwapRequest) => {
-            // Determine the display text based on the type of request
-            let displayName = '';
-            
-            if (sr.requesterUserId === userId) {
-              // This is a swap request they made - waiting for target to respond
-              const targetUser = userMap.get(sr.targetUserId || '') as User;
-              displayName = targetUser ? `Waiting for ${targetUser.firstName} ${targetUser.lastName}` : 'Waiting for response';
-            } else if (sr.targetUserId === userId) {
-              // This is a swap request directed at them - they need to respond
-              const requesterUser = userMap.get(sr.requesterUserId) as User;
-              displayName = requesterUser ? `Request from ${requesterUser.firstName} ${requesterUser.lastName}` : 'Incoming request';
-            }
-            
             pendingApprovalsList.push({
               ...sr,
               _type: 'swap',
-              _employeeName: displayName,
+              _employeeName: `${user.firstName} ${user.lastName}`,
             });
           });
       }
 
-      
-
       // Build today's schedule with employee names
-      console.log('📋 Today shifts fetched:', todayShifts.map(s => ({ 
-        id: s.$id, 
-        date: s.date, 
-        onCallRole: s.onCallRole, 
-        userId: s.userId 
-      })));
-      
+
       const todayScheduleWithNames: DashboardShift[] = todayShifts.map((shift: Shift) => {
         const employee = userMap.get(shift.userId) as User;
         return {
@@ -333,23 +264,14 @@ export default function DashboardPage() {
         };
       });
 
-      console.log('📋 Today schedule with names:', todayScheduleWithNames.map(s => ({ 
-        id: s.$id, 
-        role: s.onCallRole, 
-        name: s._employeeName,
-        date: s.date
-      })));
-
       // Set all the state
       setStats(dashboardStats);
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleWithNames);
       setTeamMembers(deduplicateTeamMembers(employeesOnly)); // Use only employees for drag-and-drop (no managers/admins for on-call)
 
-      
     } catch (error) {
-      
-      
+
       // Check if it's a collection not found error
       if (error && typeof error === 'object' && 'message' in error && 
           typeof error.message === 'string' && 
@@ -379,8 +301,7 @@ export default function DashboardPage() {
     if (!userId || !userRole) return;
     
     try {
-      
-      
+
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -391,15 +312,6 @@ export default function DashboardPage() {
       const todayEnd = `${today}T23:59:59.999Z`;
       const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
       const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
-
-      console.log('📅 Silent refresh - Date calculations:', { 
-        today, 
-        todayStart, 
-        todayEnd,
-        tomorrowStart,
-        sevenDaysEnd,
-        note: 'Upcoming shifts: next 7 days from tomorrow, excluding today from results'
-      });
 
       // Handle UPPERCASE roles from Appwrite
       // Use the component-level isManagerOrAdmin variable
@@ -434,9 +346,7 @@ export default function DashboardPage() {
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
       const filteredSwapRequests = isManagerOrAdmin 
         ? allSwapRequests 
-        : allSwapRequests.filter((sr: SwapRequest) => 
-            sr.requesterUserId === userId || sr.targetUserId === userId
-          );
+        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
 
       // Build team members list with user names
       const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
@@ -479,7 +389,6 @@ export default function DashboardPage() {
             }
           });
       } else {
-        // For employees, add their own pending leave requests
         filteredLeaveRequests
           .filter((lr: LeaveRequest) => lr.status === 'PENDING')
           .forEach((lr: LeaveRequest) => {
@@ -490,39 +399,19 @@ export default function DashboardPage() {
             });
           });
 
-        // For employees, add swap requests they made AND swap requests directed at them
         filteredSwapRequests
           .filter((sr: SwapRequest) => sr.status === 'PENDING')
           .forEach((sr: SwapRequest) => {
-            // Determine the display text based on the type of request
-            let displayName = '';
-            
-            if (sr.requesterUserId === userId) {
-              // This is a swap request they made - waiting for target to respond
-              const targetUser = userMap.get(sr.targetUserId || '') as User;
-              displayName = targetUser ? `Waiting for ${targetUser.firstName} ${targetUser.lastName}` : 'Waiting for response';
-            } else if (sr.targetUserId === userId) {
-              // This is a swap request directed at them - they need to respond
-              const requesterUser = userMap.get(sr.requesterUserId) as User;
-              displayName = requesterUser ? `Request from ${requesterUser.firstName} ${requesterUser.lastName}` : 'Incoming request';
-            }
-            
             pendingApprovalsList.push({
               ...sr,
               _type: 'swap',
-              _employeeName: displayName,
+              _employeeName: `${user.firstName} ${user.lastName}`,
             });
           });
       }
 
       // Build today's schedule
-      console.log('📋 Silent refresh - Today shifts fetched:', todayShifts.map(s => ({ 
-        id: s.$id, 
-        date: s.date, 
-        onCallRole: s.onCallRole, 
-        userId: s.userId 
-      })));
-      
+
       const todayScheduleList: DashboardShift[] = todayShifts.map((shift: Shift) => {
         const shiftUser = userMap.get(shift.userId) as User;
         return {
@@ -530,13 +419,6 @@ export default function DashboardPage() {
           _employeeName: shiftUser ? `${shiftUser.firstName} ${shiftUser.lastName}` : 'Unknown',
         };
       });
-
-      console.log('📋 Silent refresh - Today schedule list:', todayScheduleList.map(s => ({ 
-        id: s.$id, 
-        role: s.onCallRole, 
-        name: s._employeeName,
-        date: s.date
-      })));
 
       // Update all state
       setStats(dashboardStats);
@@ -558,96 +440,76 @@ export default function DashboardPage() {
   const handleShiftUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     const today = new Date().toISOString().split('T')[0];
     const shiftDate = typeof payload?.date === 'string' ? payload.date.split('T')[0] : '';
-    
-    console.log('📅 handleShiftUpdate:', { 
-      eventType, 
-      shiftId: payload.$id, 
-      shiftDate, 
-      today, 
-      isToday: shiftDate === today,
-      onCallRole: payload.onCallRole,
-      userId: payload.userId
-    });
-    
+
     try {
-      // For employee users, recalculate "My Shifts" count if the shift belongs to them
-      if (!isManagerOrAdmin && payload.userId === userId) {
-        // Calculate current week range
-        const currentDate = new Date();
-        const startOfWeek = new Date(currentDate);
-        const day = startOfWeek.getDay();
-        const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
-        startOfWeek.setDate(diff);
-        
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-        
-        const weekStart = startOfWeek.toISOString().split('T')[0];
-        const weekEnd = endOfWeek.toISOString().split('T')[0];
-        
-        // Check if this shift is in the current week
-        if (shiftDate >= weekStart && shiftDate <= weekEnd) {
-          try {
-            // Fetch updated weekly shifts count
-            const weekStartTime = `${weekStart}T00:00:00.000Z`;
-            const weekEndTime = `${weekEnd}T23:59:59.999Z`;
-            const weeklyShifts = await shiftService.getShiftsByDateRange(weekStartTime, weekEndTime);
-            
-            const myWeeklyShiftsCount = weeklyShifts.filter((s: Shift) => 
-              s.userId === userId && 
-              (s.onCallRole === 'PRIMARY' || s.onCallRole === 'BACKUP')
-            ).length;
-            
-            console.log('📊 Updated My Shifts count:', myWeeklyShiftsCount);
-            
-            setStats(prev => ({
-              ...prev,
-              totalEmployees: myWeeklyShiftsCount
-            }));
-          } catch (error) {
-            console.error('❌ Error updating My Shifts count:', error);
-          }
-        }
-      }
-      
       if (eventType === 'CREATE' || eventType === 'UPDATE') {
         // Get user info for the shift
         const shiftUser = await userService.getUserById(payload.userId as string);
         
         // Update today's schedule if it's for today
         if (shiftDate === today) {
-          const newShift: DashboardShift = {
-            $id: payload.$id as string,
-            userId: payload.userId as string,
-            date: payload.date as string,
-            onCallRole: payload.onCallRole as 'PRIMARY' | 'BACKUP',
-            status: (payload.status as 'SCHEDULED' | 'COMPLETED' | 'SWAPPED') || 'SCHEDULED',
-            _employeeName: `${shiftUser.firstName} ${shiftUser.lastName}`,
-            startTime: '07:30',
-            endTime: '15:30',
-            type: payload.type as string,
-            createdAt: payload.createdAt as string || new Date().toISOString(),
-            updatedAt: payload.updatedAt as string || new Date().toISOString(),
-            $createdAt: payload.$createdAt as string || new Date().toISOString(),
-            $updatedAt: payload.$updatedAt as string || new Date().toISOString()
-          };
-          
-          console.log('📋 Updated shift for today schedule:', newShift);
+          setTodaySchedule(prev => {
+
+            // Only filter out the specific shift being updated (by $id)
+            const filtered = prev.filter(s => s.$id !== (payload.$id as string));
+            
+            if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
+              const newShift: DashboardShift = {
+                $id: payload.$id as string,
+                userId: payload.userId as string,
+                date: payload.date as string,
+                onCallRole: payload.onCallRole as 'PRIMARY' | 'BACKUP',
+                status: (payload.status as 'SCHEDULED' | 'COMPLETED' | 'SWAPPED') || 'SCHEDULED',
+                _employeeName: `${shiftUser.firstName} ${shiftUser.lastName}`,
+                startTime: '07:30',
+                endTime: '15:30',
+                type: payload.type as string,
+                createdAt: payload.createdAt as string || new Date().toISOString(),
+                updatedAt: payload.updatedAt as string || new Date().toISOString(),
+                $createdAt: payload.$createdAt as string || new Date().toISOString(),
+                $updatedAt: payload.$updatedAt as string || new Date().toISOString()
+              };
+              
+              // Add the new/updated shift and sort by role for consistent display
+              const updatedSchedule = [...filtered, newShift];
+              const sortedSchedule = updatedSchedule.sort((a, b) => {
+                // Sort PRIMARY first, then BACKUP
+                if (a.onCallRole === 'PRIMARY' && b.onCallRole === 'BACKUP') return -1;
+                if (a.onCallRole === 'BACKUP' && b.onCallRole === 'PRIMARY') return 1;
+                return 0;
+              });
+
+              return sortedSchedule;
+            }
+
+            return filtered;
+          });
         }
-      } else if (eventType === 'DELETE') {
-        console.log('🗑️ Processing shift deletion:', { shiftId: payload.$id, shiftDate, isToday: shiftDate === today });
         
-        // For employee users, recalculate their weekly shifts count on deletion
-        if (!isManagerOrAdmin && payload.userId === userId) {
-          await silentRefreshDashboard();
+        // Stats will be updated automatically by the shifts count refresh effect
+        
+      } else if (eventType === 'DELETE') {
+
+        // Remove from today's schedule
+        if (shiftDate === today) {
+          setTodaySchedule(prev => {
+            const exists = prev.some(s => s.$id === payload.$id);
+            if (!exists) {
+
+              return prev;
+            }
+            return prev.filter(s => s.$id !== payload.$id);
+          });
         }
+        
+        // Stats will be updated automatically by the shifts count refresh effect
       }
     } catch {
       
       // Fallback to silent refresh if individual update fails
       await silentRefreshDashboard();
     }
-  }, [isManagerOrAdmin, userId, silentRefreshDashboard]);
+  }, [silentRefreshDashboard]);
 
   const handleLeaveUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {
@@ -751,13 +613,12 @@ export default function DashboardPage() {
   const refreshUserCount = useCallback(async () => {
     try {
       if (!isManagerOrAdmin) return;
-      
-      console.log('🔄 Refreshing user count from database...');
+
       const users = await userService.getAllUsers();
       const employeeCount = users.filter(user => user.role === 'EMPLOYEE').length;
       
       setStats(prevStats => {
-        console.log('📊 Updated employee count from database:', prevStats.totalEmployees, '→', employeeCount);
+
         return { ...prevStats, totalEmployees: employeeCount };
       });
     } catch (error) {
@@ -768,8 +629,7 @@ export default function DashboardPage() {
   // Helper function to refresh upcoming shifts count from database
   const refreshUpcomingShiftsCount = useCallback(async () => {
     try {
-      console.log('🔄 Refreshing upcoming shifts count from database...');
-      
+
       // Calculate dates - next 7 days starting from tomorrow
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days from today = 7 days from tomorrow
@@ -777,16 +637,7 @@ export default function DashboardPage() {
       
       const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
       const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
-      
-      console.log('📅 Upcoming shifts date range:', { 
-        today,
-        tomorrow, 
-        sevenDaysFromTomorrow,
-        tomorrowStart, 
-        sevenDaysEnd, 
-        note: '7 days from tomorrow, excluding today from results' 
-      });
-      
+
       // Get shifts for 7 days from tomorrow
       const allShifts = await shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd);
       
@@ -797,16 +648,9 @@ export default function DashboardPage() {
       });
       
       const upcomingCount = upcomingShifts.length;
-      
-      console.log('📊 Shifts filtering:', { 
-        totalFetched: allShifts.length, 
-        afterTodayFilter: upcomingCount,
-        todayDate: today,
-        shiftDates: allShifts.map(s => s.date.split('T')[0])
-      });
-      
+
       setStats(prevStats => {
-        console.log('📊 Updated upcoming shifts count from database:', prevStats.upcomingShifts, '→', upcomingCount);
+
         return { ...prevStats, upcomingShifts: upcomingCount };
       });
     } catch (error) {
@@ -865,8 +709,7 @@ export default function DashboardPage() {
   }, [user, refreshUpcomingShiftsCount]);
 
   const handleTeamMemberUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
-    try {
-      console.log('🔄 Team member update:', { eventType, payload }); // Debug logging
+    try {// Debug logging
       
       const memberId = payload.$id as string;
       
@@ -878,10 +721,10 @@ export default function DashboardPage() {
             // Check for duplicates more thoroughly
             const exists = prev.some(member => member.$id === newMember.$id);
             if (exists) {
-              console.log('⚠️ Member already exists, skipping duplicate creation:', newMember.$id);
+
               return prev; // Prevent duplicates
             }
-            console.log('✅ Adding new team member:', newMember.firstName, newMember.lastName);
+
             const newMembers = [...prev, newMember];
             return deduplicateTeamMembers(newMembers); // Ensure no duplicates
           });
@@ -905,11 +748,11 @@ export default function DashboardPage() {
             return deduplicateTeamMembers(updatedMembers);
           } else if (oldMember && updatedMember.role !== 'EMPLOYEE') {
             // Remove from team members if no longer an employee
-            console.log('⚠️ Member no longer employee, removing from team members:', updatedMember.firstName, updatedMember.lastName);
+
             return prev.filter(member => member.$id !== updatedMember.$id);
           } else if (!oldMember && updatedMember.role === 'EMPLOYEE') {
             // Add to team members if became an employee
-            console.log('✅ Member became employee, adding to team members:', updatedMember.firstName, updatedMember.lastName);
+
             const newMembers = [...prev, updatedMember];
             return deduplicateTeamMembers(newMembers);
           }
@@ -922,16 +765,14 @@ export default function DashboardPage() {
         
         // Only proceed if the member actually exists in our current state
         if (!memberToDelete) {
-          console.log('⚠️ Member not found in current state, skipping deletion:', memberId);
+
           return; // Exit early to prevent any state updates
         }
-        
-        console.log('📊 Found member to delete:', memberToDelete.firstName, memberToDelete.lastName, 'Role:', memberToDelete.role);
-        
+
         // Check if this member was already deleted (additional safety check)
         const isAlreadyDeleted = !teamMembers.some(member => member.$id === memberId);
         if (isAlreadyDeleted) {
-          console.log('⚠️ Member already deleted from state, skipping:', memberId);
+
           return;
         }
         
@@ -940,13 +781,12 @@ export default function DashboardPage() {
           // Double-check the member still exists before filtering
           const memberExists = prev.some(member => member.$id === memberId);
           if (!memberExists) {
-            console.log('⚠️ Member not found during state update, no changes made');
+
             return prev; // Return unchanged state
           }
           
           const filteredMembers = prev.filter(member => member.$id !== memberId);
-          console.log('🗑️ Removed team member from drag-and-drop list:', memberToDelete.firstName, memberToDelete.lastName);
-          
+
           return filteredMembers;
         });
       }
@@ -967,44 +807,18 @@ export default function DashboardPage() {
   const handleApprove = async () => {
     if (!selectedApproval) return;
     
-    // Validate manager role
-    if (!isManagerOrAdmin) {
-      toast({
-        title: "Unauthorized",
-        description: "Only managers and admins can approve requests.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
     setIsProcessingApproval(true);
     try {
-      console.log('🎯 Dashboard approval - Starting process:', {
-        type: selectedApproval._type,
-        requestId: selectedApproval.$id,
-        employeeName: selectedApproval._employeeName,
-        userRole: userRole,
-        comment: approvalComment
-      });
-
       if (selectedApproval._type === 'leave') {
-        // Use the proper approveLeaveRequest method that reduces balance
-        await leaveService.approveLeaveRequest(selectedApproval.$id!);
-        
-        // Add manager comment separately if provided
-        if (approvalComment) {
-          await leaveService.updateLeaveRequest(selectedApproval.$id!, {
-            managerComment: approvalComment
-          });
-        }
-        
-        console.log('✅ Dashboard - Leave request approved with balance deduction');
+        await leaveService.updateLeaveRequest(selectedApproval.$id!, {
+          status: 'APPROVED' as LeaveStatus,
+          ...(approvalComment && { managerComment: approvalComment })
+        });
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
           status: 'APPROVED' as SwapStatus,
           ...(approvalComment && { managerComment: approvalComment })
         });
-        console.log('✅ Dashboard - Swap request approved');
       }
       
       toast({
@@ -1019,16 +833,7 @@ export default function DashboardPage() {
       
       // Refresh dashboard data to show updates
       await silentRefreshDashboard();
-      
-      // Refresh user data to update leave balances in UI
-      if (selectedApproval._type === 'leave') {
-        await refreshUser();
-        console.log('🔄 Dashboard - User data refreshed to update leave balances');
-      }
-      
-      console.log('🔄 Dashboard - Data refreshed after approval');
-    } catch (error) {
-      console.error('❌ Dashboard approval error:', error);
+    } catch {
       toast({
         title: "Error",
         description: "Failed to approve request. Please try again.",
@@ -1097,8 +902,7 @@ export default function DashboardPage() {
     const unsubscribe = client.subscribe(
       subscriptions,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      async (response: Record<string, any>) => {
-        console.log('🔔 Real-time event received:', { events: response.events, payload: response.payload }); // Debug logging
+      async (response: Record<string, any>) => {// Debug logging
         
         const events = response.events || [];
         const payload = response.payload;
@@ -1115,7 +919,7 @@ export default function DashboardPage() {
         
         // Check for exact duplicate events (same ID, event type, and timestamp)
         if (processedEvents.has(eventKey)) {
-          console.log('🚫 Skipping duplicate event:', eventKey);
+
           return;
         }
         
@@ -1158,7 +962,6 @@ export default function DashboardPage() {
               title: "Dashboard Updated",
               description: `${collection} ${eventTypeText}`,
               duration: 2000,
-              variant: hasDeleteEvent ? "destructive" : "success",
             });
           }
         }
@@ -1218,8 +1021,6 @@ export default function DashboardPage() {
         date: scheduleForm.date,
         onCallRole: scheduleForm.onCallRole,
         status: 'SCHEDULED',
-        $createdAt: new Date().toISOString(),
-        $updatedAt: new Date().toISOString(),
       });
 
       toast({

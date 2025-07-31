@@ -35,7 +35,7 @@ import {
   Calendar,
   Shield
 } from 'lucide-react';
-import { userService } from '@/lib/appwrite/user-service';
+import { userService } from '@/lib/appwrite/database';
 import { account } from '@/lib/appwrite/config';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { useToast } from '@/hooks/use-toast';
@@ -88,8 +88,7 @@ export default function TeamPage() {
     if (!user || user.role === 'EMPLOYEE') return;
 
     try {
-      
-      
+
       const users = await userService.getAllUsers();
       setAllUsers(users);
       
@@ -112,16 +111,13 @@ export default function TeamPage() {
   useEffect(() => {
     if (!user || user.role === 'EMPLOYEE') return;
 
-    
-    
     const unsubscribe = client.subscribe(
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.USERS}.documents`,
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        
-        
+
         const events = response.events || [];
         const payload = response.payload;
         
@@ -135,13 +131,10 @@ export default function TeamPage() {
         const hasDeleteEvent = events.some((event: string) => 
           event.includes('.delete') || event.includes('documents.delete')
         );
-        
-        
 
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
-          
-          
+
           try {
             if (hasCreateEvent || hasUpdateEvent) {
               // For CREATE/UPDATE: Update users directly

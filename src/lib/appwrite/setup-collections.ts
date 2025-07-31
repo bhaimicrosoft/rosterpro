@@ -120,12 +120,10 @@ const collectionsConfig = {
 
 export async function createCollections() {
   try {
-    
-    
+
     for (const [key, config] of Object.entries(collectionsConfig)) {
       try {
-        
-        
+
         // Create the collection
         const collection = await databases.createCollection(
           DATABASE_ID,
@@ -134,9 +132,7 @@ export async function createCollections() {
           config.permissions,
           config.documentSecurity
         );
-        
-        
-        
+
         // Create attributes for the collection
         for (const attr of config.attributes) {
           try {
@@ -193,8 +189,7 @@ export async function createCollections() {
         
       }
     }
-    
-    
+
     return { success: true };
     
   } catch (error) {

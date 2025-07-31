@@ -15,8 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { shiftService, userService } from '@/lib/appwrite/database';
-import { leaveService } from '@/lib/appwrite/database';
+import { shiftService, userService, leaveService } from '@/lib/appwrite/database';
 import { Shift, User, EmployeeOnLeave, WeeklyLeaveData, LeaveType } from '@/types';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
@@ -281,8 +280,7 @@ export default function SchedulePage() {
     if (!user) return;
     
     try {
-      
-      
+
       let startDateStr: string;
       let endDateStr: string;
 
@@ -396,8 +394,6 @@ export default function SchedulePage() {
   useEffect(() => {
     if (!user) return;
 
-    
-    
     const unsubscribe = client.subscribe(
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
@@ -407,9 +403,7 @@ export default function SchedulePage() {
       async (response: any) => {
         const events = response.events || [];
         const payload = response.payload;
-        
-        console.log('📡 Schedule: Received real-time event:', { events, payload });
-        
+
         // Check for specific event types with more robust pattern matching
         const hasCreateEvent = events.some((event: string) => 
           event.includes('.create') || 
@@ -456,8 +450,7 @@ export default function SchedulePage() {
               if (hasCreateEvent || hasUpdateEvent) {
                 // For CREATE/UPDATE: Get user info and update shifts directly
                 const updatedUser = await userService.getUserById(payload.userId);
-                console.log('✅ Schedule: User data for shift update:', updatedUser?.firstName);
-                
+
                 setShifts(prevShifts => {
                   const filteredShifts = prevShifts.filter(s => s.$id !== payload.$id);
                   if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
