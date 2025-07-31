@@ -1,0 +1,47 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build project
+        run: npm run build
+        env:
+          NEXT_PUBLIC_APPWRITE_ENDPOINT: ${{ secrets.NEXT_PUBLIC_APPWRITE_ENDPOINT }}
+          NEXT_PUBLIC_APPWRITE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_APPWRITE_PROJECT_ID }}
+          APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+          APPWRITE_DEV_KEY: ${{ secrets.APPWRITE_DEV_KEY }}
+          NEXT_PUBLIC_DATABASE_ID: ${{ secrets.NEXT_PUBLIC_DATABASE_ID }}
+          NEXT_PUBLIC_USERS_COLLECTION_ID: ${{ secrets.NEXT_PUBLIC_USERS_COLLECTION_ID }}
+          NEXT_PUBLIC_SHIFTS_COLLECTION_ID: ${{ secrets.NEXT_PUBLIC_SHIFTS_COLLECTION_ID }}
+          NEXT_PUBLIC_LEAVE_REQUESTS_COLLECTION_ID: ${{ secrets.NEXT_PUBLIC_LEAVE_REQUESTS_COLLECTION_ID }}
+          NEXT_PUBLIC_SWAP_REQUESTS_COLLECTION_ID: ${{ secrets.NEXT_PUBLIC_SWAP_REQUESTS_COLLECTION_ID }}
+          NEXT_PUBLIC_NOTIFICATIONS_COLLECTION_ID: ${{ secrets.NEXT_PUBLIC_NOTIFICATIONS_COLLECTION_ID }}
+          DEFAULT_USER_PASSWORD: ${{ secrets.DEFAULT_USER_PASSWORD }}
+          
+      - name: Deploy to Vercel
+        uses: vercel/action@v1
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'

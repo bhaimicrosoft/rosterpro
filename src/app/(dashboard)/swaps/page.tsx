@@ -30,6 +30,8 @@ export default function SwapsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [approverComment, setApproverComment] = useState('');
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [newSwapRequest, setNewSwapRequest] = useState({
     myShiftId: '',
     targetUserId: 'none',
@@ -179,6 +181,11 @@ export default function SwapsPage() {
     setFilteredRequests(filtered);
   }, [swapRequests, filterStatus]);
 
+  // Filter incoming swap requests based on status
+  const filteredIncomingRequests = incomingSwapRequests.filter(req => 
+    filterStatus === 'all' || req.status === filterStatus
+  );
+
   // Filter target shifts based on selected target user
   const filterTargetShifts = useCallback(async (targetUserId: string) => {
     if (!user) return;
@@ -279,25 +286,27 @@ export default function SwapsPage() {
                 if (user?.role === 'EMPLOYEE') {
                   setIncomingSwapRequests(prevRequests => {
                     const filteredRequests = prevRequests.filter(sr => sr.$id !== payload.$id);
-                    // Only add if this is PENDING and directed at this user
-                    if ((eventType === 'CREATE' || eventType === 'UPDATE' && payload.status === 'PENDING') && 
-                        payload.targetUserId === user.$id && payload.requesterUserId !== user.$id) {
-                      const newRequest: SwapRequest = {
-                        $id: payload.$id,
-                        requesterUserId: payload.requesterUserId,
-                        targetUserId: payload.targetUserId || '',
-                        requesterShiftId: payload.requesterShiftId || payload.myShiftId,
-                        targetShiftId: payload.targetShiftId || payload.theirShiftId || '',
-                        reason: payload.reason,
-                        status: payload.status || 'PENDING',
-                        managerComment: payload.managerComment || '',
-                        requestedAt: payload.requestedAt || new Date().toISOString(),
-                        respondedAt: payload.respondedAt,
-                        $createdAt: payload.$createdAt || new Date().toISOString(),
-                        $updatedAt: payload.$updatedAt || new Date().toISOString()
-                      };
-                      
-                      return [...filteredRequests, newRequest];
+                    // Add if this request is directed at this user (regardless of status for UPDATE events)
+                    if ((eventType === 'CREATE' && payload.status === 'PENDING') || 
+                        (eventType === 'UPDATE')) {
+                      if (payload.targetUserId === user.$id && payload.requesterUserId !== user.$id) {
+                        const newRequest: SwapRequest = {
+                          $id: payload.$id,
+                          requesterUserId: payload.requesterUserId,
+                          targetUserId: payload.targetUserId || '',
+                          requesterShiftId: payload.requesterShiftId || payload.myShiftId,
+                          targetShiftId: payload.targetShiftId || payload.theirShiftId || '',
+                          reason: payload.reason,
+                          status: payload.status || 'PENDING',
+                          managerComment: payload.managerComment || '',
+                          requestedAt: payload.requestedAt || new Date().toISOString(),
+                          respondedAt: payload.respondedAt,
+                          $createdAt: payload.$createdAt || new Date().toISOString(),
+                          $updatedAt: payload.$updatedAt || new Date().toISOString()
+                        };
+                        
+                        return [...filteredRequests, newRequest];
+                      }
                     }
                     return filteredRequests;
                   });
@@ -479,11 +488,20 @@ export default function SwapsPage() {
       const swapRequest = incomingSwapRequests.find(req => req.$id === swapId);
       if (!swapRequest) return;
 
+      // Use the comment from the approver comment field if selected, otherwise use passed notes
+      const comment = selectedRequestId === swapId ? approverComment.trim() : notes;
+
       await swapService.updateSwapRequest(swapId, { 
         status: 'APPROVED',
-        responseNotes: notes,
+        responseNotes: comment,
         respondedAt: new Date().toISOString()
       });
+
+      // Clear the comment field after successful submission
+      if (selectedRequestId === swapId) {
+        setApproverComment('');
+        setSelectedRequestId(null);
+      }
 
       // Don't manually update state - let real-time subscription handle it
 
@@ -513,7 +531,7 @@ export default function SwapsPage() {
         variant: "destructive"
       });
     }
-  }, [user, incomingSwapRequests, getShiftDate, toast]);
+  }, [user, incomingSwapRequests, getShiftDate, toast, selectedRequestId, approverComment]);
 
   const handleEmployeeRejectSwap = useCallback(async (swapId: string, notes = '') => {
     if (!user || user.role !== 'EMPLOYEE') return;
@@ -522,11 +540,20 @@ export default function SwapsPage() {
       const swapRequest = incomingSwapRequests.find(req => req.$id === swapId);
       if (!swapRequest) return;
 
+      // Use the comment from the approver comment field if selected, otherwise use passed notes
+      const comment = selectedRequestId === swapId ? approverComment.trim() : notes;
+
       await swapService.updateSwapRequest(swapId, { 
         status: 'REJECTED',
-        responseNotes: notes,
+        responseNotes: comment,
         respondedAt: new Date().toISOString()
       });
+
+      // Clear the comment field after successful submission
+      if (selectedRequestId === swapId) {
+        setApproverComment('');
+        setSelectedRequestId(null);
+      }
 
       // Don't manually update state - let real-time subscription handle it
 
@@ -542,7 +569,7 @@ export default function SwapsPage() {
         );
         
         toast({
-          title: "Swap Request Declined",
+          title: "Swap Request Rejected",
           description: "The requester has been notified of your decision.",
         });
       } catch (notificationError) {
@@ -556,7 +583,7 @@ export default function SwapsPage() {
         variant: "destructive"
       });
     }
-  }, [user, incomingSwapRequests, getShiftDate, toast]);
+  }, [user, incomingSwapRequests, getShiftDate, toast, selectedRequestId, approverComment]);
 
   const getUserName = (userId: string) => {
     const foundUser = teamMembers.find(member => member.$id === userId);
@@ -720,13 +747,17 @@ export default function SwapsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="PENDING">Pending</SelectItem>
+                  <SelectItem value="APPROVED">Approved</SelectItem>
+                  <SelectItem value="REJECTED">Rejected</SelectItem>
                 </SelectContent>
               </Select>
               <div className="text-sm text-muted-foreground">
-                Showing {filteredRequests.length} of {swapRequests.length} requests
+                {user.role === 'EMPLOYEE' ? (
+                  <>Showing {filteredRequests.length + filteredIncomingRequests.length} of {swapRequests.length + incomingSwapRequests.length} requests</>
+                ) : (
+                  <>Showing {filteredRequests.length} of {swapRequests.length} requests</>
+                )}
               </div>
             </div>
           </CardContent>
@@ -748,9 +779,9 @@ export default function SwapsPage() {
                   <TabsTrigger value="my-requests" className="flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
                     My Swap Requests
-                    {swapRequests.filter(req => req.status === 'PENDING').length > 0 && (
+                    {filteredRequests.length > 0 && (
                       <Badge variant="secondary" className="ml-1">
-                        {swapRequests.filter(req => req.status === 'PENDING').length}
+                        {filteredRequests.length}
                       </Badge>
                     )}
                   </TabsTrigger>
@@ -810,11 +841,23 @@ export default function SwapsPage() {
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded">
-                              {request.reason}
+                              <span className="font-medium">Reason:</span> {request.reason}
                             </p>
-                            {request.managerComment && (
+                            
+                            {/* Display approver comments from responseNotes */}
+                            {request.responseNotes && (
                               <div className="mt-2">
-                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Comment:</p>
+                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Approver Comment:</p>
+                                <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+                                  {request.responseNotes}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* Legacy manager comment display (fallback) */}
+                            {request.managerComment && !request.responseNotes && (
+                              <div className="mt-2">
+                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Approver Comment:</p>
                                 <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
                                   {request.managerComment}
                                 </p>
@@ -832,7 +875,7 @@ export default function SwapsPage() {
 
                 {/* Awaiting My Approval Tab */}
                 <TabsContent value="awaiting-approval" className="space-y-4 mt-6">
-                  {incomingSwapRequests.length === 0 ? (
+                  {filteredIncomingRequests.length === 0 ? (
                     <div className="text-center py-12">
                       <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-lg font-medium text-muted-foreground">No pending requests</p>
@@ -842,7 +885,7 @@ export default function SwapsPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {incomingSwapRequests.map((request) => (
+                      {filteredIncomingRequests.map((request) => (
                         <div key={request.$id} className="flex items-center justify-between p-6 border rounded-xl hover:shadow-md transition-shadow bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
                           <div className="space-y-2 flex-1">
                             <div className="flex items-center space-x-3">
@@ -868,12 +911,33 @@ export default function SwapsPage() {
                             <p className="text-sm text-muted-foreground bg-white/70 dark:bg-gray-800/70 p-2 rounded">
                               <span className="font-medium">Reason:</span> {request.reason}
                             </p>
-                            {request.responseNotes && (
+                            
+                            {/* Display existing approver comments for approved/rejected requests */}
+                            {request.responseNotes && request.status !== 'PENDING' && (
                               <div className="mt-2">
-                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Your Response:</p>
-                                <p className="text-sm text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 p-2 rounded">
+                                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Approver Comment:</p>
+                                <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
                                   {request.responseNotes}
                                 </p>
+                              </div>
+                            )}
+                            
+                            {/* Approver Comment Section for PENDING requests */}
+                            {request.status === 'PENDING' && (
+                              <div className="mt-3">
+                                <Label htmlFor={`approver-comment-${request.$id}`} className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                                  Approver Comment (Optional):
+                                </Label>
+                                <Textarea
+                                  id={`approver-comment-${request.$id}`}
+                                  placeholder="Add your comments here..."
+                                  value={selectedRequestId === request.$id ? approverComment : ''}
+                                  onChange={(e) => {
+                                    setSelectedRequestId(request.$id);
+                                    setApproverComment(e.target.value);
+                                  }}
+                                  className="min-h-[60px] text-sm"
+                                />
                               </div>
                             )}
                             <div className="text-xs text-muted-foreground">
@@ -935,7 +999,7 @@ export default function SwapsPage() {
                   <p className="text-sm text-muted-foreground">No team members have requested swaps yet</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
                   {filteredRequests.map((request) => (
                     <div key={request.$id} className="flex items-center justify-between p-6 border rounded-xl hover:shadow-md transition-shadow bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
                       <div className="space-y-2 flex-1">
@@ -949,14 +1013,20 @@ export default function SwapsPage() {
                           </Badge>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <User className="h-3 w-3" />
-                          Requested by: {getUserName(request.requesterUserId)}
+                          <User className="h-5 w-5 text-slate-600" />
+                          <span className='font-semibold text-amber-600'>Requested by:</span> <span className='font-bold text-purple-700'> {getUserName(request.requesterUserId)}</span>
                         </div>
                         {request.status === 'APPROVED' && request.targetUserId && (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <CheckCircle className="h-3 w-3 text-green-600" />
-                            Approved by: {getUserName(request.targetUserId)}
-                          </div>
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                            <span className='font-semibold text-green-600'>Approved by:</span> <span className='font-bold text-teal-700'> {getUserName(request.targetUserId)}</span>
+                           </div>
+                        )}
+                        {request.status === 'REJECTED' && request.targetUserId && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <XCircle className="h-5 w-5 text-red-600" />
+                            <span className='font-semibold text-red-600'>Rejected by:</span> <span className='font-bold text-orange-700'> {getUserName(request.targetUserId)}</span>
+                           </div>
                         )}
                         <div className="text-sm text-muted-foreground">
                           <span className="font-medium">Original Shift:</span> {getShiftDate(request.requesterShiftId)}
@@ -972,7 +1042,7 @@ export default function SwapsPage() {
                         </p>
                         {request.managerComment && (
                           <div className="mt-2">
-                            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Comment:</p>
+                            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Approver Comment:</p>
                             <p className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
                               {request.managerComment}
                             </p>

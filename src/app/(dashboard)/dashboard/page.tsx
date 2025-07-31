@@ -2026,7 +2026,7 @@ export default function DashboardPage() {
               
               <div>
                 <Label htmlFor="approvalComment" className="text-sm font-medium">
-                  Manager Comment (Optional)
+                  Approver Comment (Optional)
                 </Label>
                 <Textarea
                   id="approvalComment"
