@@ -1,11 +1,5 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
   "env": {
     "NEXT_PUBLIC_APPWRITE_ENDPOINT": "@appwrite_endpoint",
     "NEXT_PUBLIC_APPWRITE_PROJECT_ID": "@appwrite_project_id",
@@ -20,7 +14,7 @@
     "DEFAULT_USER_PASSWORD": "@default_user_password"
   },
   "functions": {
-    "src/app/api/**/*.ts": {
+    "app/api/**/*.ts": {
       "maxDuration": 30
     }
   }
