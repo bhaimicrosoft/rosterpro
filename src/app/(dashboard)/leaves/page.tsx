@@ -18,8 +18,22 @@ import { leaveService, userService } from '@/lib/appwrite/database';
 import { useToast } from '@/hooks/use-toast';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
+const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+
 export default function LeavesPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<LeaveRequest[]>([]);
@@ -37,6 +51,8 @@ export default function LeavesPage() {
   });
   const [validationError, setValidationError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  
 
   const fetchLeaveData = useCallback(async () => {
     if (!user) return;
@@ -262,6 +278,51 @@ export default function LeavesPage() {
       unsubscribe();
     };
   }, [user, toast, silentRefreshLeaveData]);
+
+  // Real-time subscription for user balance updates
+  useEffect(() => {
+    if (!user || !user.documentId) return;
+
+    const unsubscribe = client.subscribe(
+      [
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.USERS}.documents.${user.documentId}`,
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (response: any) => {
+        console.log('User subscription event received:', response);
+
+        const events = response.events || [];
+        const payload = response.payload;
+        
+        // Check for user update events
+        const hasUpdateEvent = events.some((event: string) => 
+          event.includes('.update') || event.includes('documents.update')
+        );
+        
+        if (hasUpdateEvent && payload && payload.$id === user.documentId) {
+          console.log('User balance updated, refreshing user data...');
+          
+          // Refresh user data to get updated balances
+          refreshUser();
+          
+          // Show a toast notification about balance update
+          toast({
+            title: "Balance Updated",
+            description: "Your leave balance has been updated.",
+            duration: 3000,
+          });
+        }
+      }
+    );
+
+    console.log('User subscription established for user:', user.documentId);
+
+    return () => {
+      console.log('Cleaning up user subscription');
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, toast]);
 
   const refreshLeaveData = async () => {
     setIsRefreshing(true);
@@ -620,7 +681,7 @@ export default function LeavesPage() {
                           <div className="space-y-2 flex-1 min-w-0">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                               <span className="font-semibold text-base sm:text-lg break-words">
-                                {request.startDate} to {request.endDate}
+                                {formatDate(request.startDate)} to {formatDate(request.endDate)}
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 <Badge className={`${getTypeColor(request.type)} border`}>
@@ -711,7 +772,8 @@ export default function LeavesPage() {
                           <div className="space-y-2 flex-1 min-w-0">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                               <span className="font-semibold text-base sm:text-lg break-words">
-                                {request.startDate} to {request.endDate}
+                                
+                               { formatDate(request.startDate)} to {formatDate(request.endDate) }
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 <Badge className={`${getTypeColor(request.type)} border`}>

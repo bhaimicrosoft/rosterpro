@@ -50,6 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
           setUser({
             $id: session.$id, // Use session ID, not document ID
+            documentId: userDoc.$id, // Store document ID separately
             firstName: userDoc.firstName,
             lastName: userDoc.lastName,
             username: userDoc.username,
@@ -152,6 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // No need to verify since session creation was successful
       setUser({
         $id: userDoc.$id,
+        documentId: userDoc.$id, // For login, document ID is the same as session user ID
         firstName: userDoc.firstName,
         lastName: userDoc.lastName,
         username: userDoc.username,
@@ -208,6 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const userDoc = userQuery.documents[0];
         setUser({
           $id: currentAccount.$id,
+          documentId: userDoc.$id, // Store document ID separately
           email: currentAccount.email,
           firstName: userDoc.firstName,
           lastName: userDoc.lastName,

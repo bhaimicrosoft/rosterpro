@@ -160,7 +160,8 @@ export interface ApiResponse<T = unknown> {
 
 // Auth context types
 export interface AuthUser {
-  $id: string;
+  $id: string; // Session ID
+  documentId: string; // User document ID in database
   firstName: string;
   lastName: string;
   username: string;

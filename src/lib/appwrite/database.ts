@@ -310,6 +310,14 @@ export const leaveService = {
 
   async updateLeaveRequest(leaveId: string, updates: Partial<LeaveRequest>) {
     try {
+      // Get the current leave request to check previous status
+      const currentLeave = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId
+      );
+      const currentLeaveData = castDocument<LeaveRequest>(currentLeave);
+
       const cleanedUpdates = cleanUpdateData(updates);
       
       const leave = await databases.updateDocument(
@@ -318,9 +326,117 @@ export const leaveService = {
         leaveId,
         cleanedUpdates
       );
-      return castDocument<LeaveRequest>(leave);
-    } catch (error) {
+      const updatedLeave = castDocument<LeaveRequest>(leave);
+
+      // Handle balance deduction/restoration when status changes
+      if (updates.status && updates.status !== currentLeaveData.status) {
+        await this.handleLeaveBalanceUpdate(updatedLeave, currentLeaveData.status, updates.status);
+      }
       
+      return updatedLeave;
+    } catch (error) {
+      console.error('Error updating leave request:', error);
+      throw error;
+    }
+  },
+
+  // Helper function to handle leave balance updates
+  async handleLeaveBalanceUpdate(leaveRequest: LeaveRequest, oldStatus: string, newStatus: string) {
+    try {
+      const user = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.USERS,
+        leaveRequest.userId
+      );
+      const userData = castDocument<User>(user);
+
+      // Calculate leave days
+      const startDate = new Date(leaveRequest.startDate);
+      const endDate = new Date(leaveRequest.endDate);
+      const leaveDays = Math.ceil(Math.abs(endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+      const balanceUpdates: Record<string, number> = {};
+
+      // Determine balance field based on leave type
+      const balanceField = leaveRequest.type === 'PAID' ? 'paidLeaves' : 
+                          leaveRequest.type === 'SICK' ? 'sickLeaves' : 'compOffs';
+
+      console.log(`🔍 Leave balance update: User ${leaveRequest.userId}, Type: ${leaveRequest.type}, Field: ${balanceField}, Days: ${leaveDays}, ${oldStatus} → ${newStatus}`);
+
+      // Handle status transitions
+      if (oldStatus === 'PENDING' && newStatus === 'APPROVED') {
+        // Deduct balance when approving
+        const currentBalance = userData[balanceField] || 0;
+        balanceUpdates[balanceField] = Math.max(0, currentBalance - leaveDays);
+        console.log(`💰 Deducting balance: ${currentBalance} - ${leaveDays} = ${balanceUpdates[balanceField]}`);
+      } else if (oldStatus === 'APPROVED' && (newStatus === 'REJECTED' || newStatus === 'CANCELLED')) {
+        // Restore balance when rejecting or cancelling approved leave
+        const currentBalance = userData[balanceField] || 0;
+        balanceUpdates[balanceField] = currentBalance + leaveDays;
+        console.log(`💰 Restoring balance: ${currentBalance} + ${leaveDays} = ${balanceUpdates[balanceField]}`);
+      } else if (oldStatus === 'PENDING' && newStatus === 'CANCELLED') {
+        // No balance change needed for cancelled pending requests
+        console.log(`ℹ️ No balance change needed for PENDING → CANCELLED`);
+        return;
+      } else {
+        console.log(`ℹ️ No balance change needed for ${oldStatus} → ${newStatus}`);
+        return;
+      }
+
+      // Update user balance if there are changes
+      if (Object.keys(balanceUpdates).length > 0) {
+        await databases.updateDocument(
+          DATABASE_ID,
+          COLLECTIONS.USERS,
+          leaveRequest.userId,
+          balanceUpdates
+        );
+        console.log(`✅ Updated ${balanceField} for user ${leaveRequest.userId}: ${oldStatus} → ${newStatus}, days: ${leaveDays}`);
+      }
+    } catch (error) {
+      console.error('Error updating leave balance:', error);
+      // Don't throw error to prevent leave update from failing
+    }
+  },
+
+  async approveLeaveRequest(leaveId: string) {
+    return this.updateLeaveRequest(leaveId, { status: 'APPROVED' });
+  },
+
+  async rejectLeaveRequest(leaveId: string) {
+    return this.updateLeaveRequest(leaveId, { status: 'REJECTED' });
+  },
+
+  async cancelLeaveRequest(leaveId: string) {
+    return this.updateLeaveRequest(leaveId, { status: 'CANCELLED' });
+  },
+
+  async deleteLeaveRequest(leaveId: string) {
+    try {
+      await databases.deleteDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId
+      );
+    } catch (error) {
+      console.error('Error deleting leave request:', error);
+      throw error;
+    }
+  },
+
+  async getPendingLeaveRequests() {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        [
+          Query.equal('status', 'PENDING'),
+          Query.orderDesc('$createdAt')
+        ]
+      );
+      return castDocuments<LeaveRequest>(response.documents);
+    } catch (error) {
+      console.error('Error getting pending leave requests:', error);
       throw error;
     }
   },
@@ -342,6 +458,12 @@ export const leaveService = {
       
       throw error;
     }
+  },
+
+  async getApprovedLeavesForWeek(startDate: string) {
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 6);
+    return this.getApprovedLeavesByDateRange(startDate, endDate.toISOString().split('T')[0]);
   },
 
   async isUserOnLeave(userId: string, date: string): Promise<boolean> {

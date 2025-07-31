@@ -807,8 +807,7 @@ export default function DashboardPage() {
     try {
       if (selectedApproval._type === 'leave') {
         await leaveService.updateLeaveRequest(selectedApproval.$id!, {
-          status: 'APPROVED' as LeaveStatus,
-          ...(approvalComment && { managerComment: approvalComment })
+          status: 'APPROVED' as LeaveStatus
         });
 
         // Create notification for employee
@@ -828,8 +827,7 @@ export default function DashboardPage() {
         }
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
-          status: 'APPROVED' as SwapStatus,
-          ...(approvalComment && { managerComment: approvalComment })
+          status: 'APPROVED' as SwapStatus
         });
 
         // Create notification for requester
@@ -879,8 +877,7 @@ export default function DashboardPage() {
     try {
       if (selectedApproval._type === 'leave') {
         await leaveService.updateLeaveRequest(selectedApproval.$id!, {
-          status: 'REJECTED' as LeaveStatus,
-          ...(approvalComment && { managerComment: approvalComment })
+          status: 'REJECTED' as LeaveStatus
         });
 
         // Create notification for employee
@@ -900,8 +897,7 @@ export default function DashboardPage() {
         }
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
-          status: 'REJECTED' as SwapStatus,
-          ...(approvalComment && { managerComment: approvalComment })
+          status: 'REJECTED' as SwapStatus
         });
 
         // Create notification for requester
@@ -1647,7 +1643,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Responsive Layout for Additional Info */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Employees on Leave This Week */}
           <EmployeesOnLeave
             teamMembers={teamMembers}
