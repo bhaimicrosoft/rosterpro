@@ -35,6 +35,8 @@ export default function LeavesPage() {
     type: 'PAID' as 'PAID' | 'SICK' | 'COMP_OFF',
     reason: '',
   });
+  const [validationError, setValidationError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchLeaveData = useCallback(async () => {
     if (!user) return;
@@ -90,6 +92,91 @@ export default function LeavesPage() {
   useEffect(() => {
     fetchLeaveData();
   }, [fetchLeaveData]);
+
+  // Helper function to calculate days between dates (inclusive)
+  const calculateLeaveDays = useCallback((startDate: string, endDate: string): number => {
+    if (!startDate || !endDate) return 0;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // Include both start and end dates
+    return diffDays;
+  }, []);
+
+  // Helper function to get available leave balance for a type
+  const getAvailableLeaves = useCallback((type: 'PAID' | 'SICK' | 'COMP_OFF'): number => {
+    if (!user) return 0;
+    switch (type) {
+      case 'PAID': return user.paidLeaves || 0;
+      case 'SICK': return user.sickLeaves || 0;
+      case 'COMP_OFF': return user.compOffs || 0;
+      default: return 0;
+    }
+  }, [user]);
+
+  // Helper function to check for date conflicts with approved leaves
+  const hasDateConflict = useCallback((startDate: string, endDate: string): boolean => {
+    if (!user || !startDate || !endDate) return false;
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    // Get user's approved leaves (excluding cancelled ones)
+    const userLeaves = leaveRequests.filter(req => 
+      req.userId === user.$id && req.status === 'APPROVED'
+    );
+
+    return userLeaves.some(leave => {
+      const leaveStart = new Date(leave.startDate);
+      const leaveEnd = new Date(leave.endDate);
+      
+      // Check if date ranges overlap
+      return (start <= leaveEnd && end >= leaveStart);
+    });
+  }, [user, leaveRequests]);
+
+  // Validation function
+  const validateLeaveRequest = useCallback((): string => {
+    if (!user || !newRequest.startDate || !newRequest.endDate) return '';
+
+    const startDate = new Date(newRequest.startDate);
+    const endDate = new Date(newRequest.endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Check if start date is in the past
+    if (startDate < today) {
+      return 'Start date cannot be in the past.';
+    }
+
+    // Check if end date is before start date
+    if (endDate < startDate) {
+      return 'End date cannot be before start date.';
+    }
+
+    const requestDays = calculateLeaveDays(newRequest.startDate, newRequest.endDate);
+    const availableLeaves = getAvailableLeaves(newRequest.type);
+
+    // Check if user has enough leaves
+    if (requestDays > availableLeaves) {
+      const leaveTypeName = newRequest.type === 'PAID' ? 'Paid Leave' : 
+                           newRequest.type === 'SICK' ? 'Sick Leave' : 'Comp Off';
+      return `You are requesting ${requestDays} days but only have ${availableLeaves} ${leaveTypeName} days available. Choose fewer days or a different leave type with more available days.`;
+    }
+
+    // Check for date conflicts with approved leaves
+    if (hasDateConflict(newRequest.startDate, newRequest.endDate)) {
+      return 'You already have an approved leave request for these dates. Please choose different dates.';
+    }
+
+    return '';
+  }, [user, newRequest, calculateLeaveDays, getAvailableLeaves, hasDateConflict]);
+
+  // Update validation error when form changes
+  useEffect(() => {
+    const error = validateLeaveRequest();
+    setValidationError(error);
+  }, [validateLeaveRequest]);
 
   // Real-time subscriptions for leave requests with instant updates
   useEffect(() => {
@@ -215,6 +302,17 @@ export default function LeavesPage() {
   const handleSubmitRequest = async () => {
     if (!user || !newRequest.startDate || !newRequest.endDate || !newRequest.reason) return;
 
+    const error = validateLeaveRequest();
+    if (error) {
+      toast({
+        title: "Validation Error",
+        description: error,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const request = await leaveService.createLeaveRequest({
         userId: user.$id,
@@ -232,9 +330,22 @@ export default function LeavesPage() {
         type: 'PAID',
         reason: '',
       });
+      setValidationError('');
       setIsDialogOpen(false);
-    } catch {
       
+      toast({
+        title: "Leave Request Submitted",
+        description: "Your leave request has been submitted for approval.",
+      });
+    } catch (error) {
+      console.error('Error submitting leave request:', error);
+      toast({
+        title: "Error",
+        description: "Failed to submit leave request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -287,14 +398,6 @@ export default function LeavesPage() {
   const getUserName = (userId: string) => {
     const foundUser = teamMembers.find(member => member.$id === userId);
     return foundUser ? `${foundUser.firstName} ${foundUser.lastName}` : 'Unknown User';
-  };
-
-  const calculateLeaveDays = (startDate: string, endDate: string) => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    return diffDays;
   };
 
   const getStatusColor = (status: string) => {
@@ -680,6 +783,25 @@ export default function LeavesPage() {
               <DialogTitle className="text-lg sm:text-xl font-semibold">Request Leave</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
+              {/* Leave Balances */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border">
+                <h4 className="font-medium text-sm text-gray-700 mb-3">Available Leave Balances</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">{user?.paidLeaves || 0}</div>
+                    <div className="text-xs text-gray-600">Paid Leave</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">{user?.sickLeaves || 0}</div>
+                    <div className="text-xs text-gray-600">Sick Leave</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-purple-600">{user?.compOffs || 0}</div>
+                    <div className="text-xs text-gray-600">Comp Off</div>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="startDate" className="text-sm font-medium">Start Date</Label>
@@ -689,6 +811,7 @@ export default function LeavesPage() {
                     value={newRequest.startDate}
                     onChange={(e) => setNewRequest(prev => ({ ...prev, startDate: e.target.value }))}
                     className="mt-1"
+                    min={new Date().toISOString().split('T')[0]}
                   />
                 </div>
                 <div>
@@ -699,9 +822,11 @@ export default function LeavesPage() {
                     value={newRequest.endDate}
                     onChange={(e) => setNewRequest(prev => ({ ...prev, endDate: e.target.value }))}
                     className="mt-1"
+                    min={newRequest.startDate || new Date().toISOString().split('T')[0]}
                   />
                 </div>
               </div>
+
               <div>
                 <Label htmlFor="leaveType" className="text-sm font-medium">Leave Type</Label>
                 <Select value={newRequest.type} onValueChange={(value: 'PAID' | 'SICK' | 'COMP_OFF') => setNewRequest(prev => ({ ...prev, type: value }))}>
@@ -709,12 +834,58 @@ export default function LeavesPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PAID">Paid Leave</SelectItem>
-                    <SelectItem value="SICK">Sick Leave</SelectItem>
-                    <SelectItem value="COMP_OFF">Comp Off</SelectItem>
+                    <SelectItem value="PAID" disabled={getAvailableLeaves('PAID') === 0}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>Paid Leave</span>
+                        <Badge variant={getAvailableLeaves('PAID') === 0 ? "destructive" : "secondary"} className="ml-2">
+                          {getAvailableLeaves('PAID')} days
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="SICK" disabled={getAvailableLeaves('SICK') === 0}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>Sick Leave</span>
+                        <Badge variant={getAvailableLeaves('SICK') === 0 ? "destructive" : "secondary"} className="ml-2">
+                          {getAvailableLeaves('SICK')} days
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="COMP_OFF" disabled={getAvailableLeaves('COMP_OFF') === 0}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>Comp Off</span>
+                        <Badge variant={getAvailableLeaves('COMP_OFF') === 0 ? "destructive" : "secondary"} className="ml-2">
+                          {getAvailableLeaves('COMP_OFF')} days
+                        </Badge>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Show requested days and validation */}
+              {newRequest.startDate && newRequest.endDate && (
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Requested Days:</span>
+                    <span className="font-medium">{calculateLeaveDays(newRequest.startDate, newRequest.endDate)} days</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mt-1">
+                    <span className="text-gray-600">Available {newRequest.type === 'PAID' ? 'Paid Leave' : newRequest.type === 'SICK' ? 'Sick Leave' : 'Comp Off'}:</span>
+                    <span className="font-medium">{getAvailableLeaves(newRequest.type)} days</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Validation Error Display */}
+              {validationError && (
+                <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-red-700">{validationError}</p>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <Label htmlFor="reason" className="text-sm font-medium">Reason</Label>
                 <Textarea
@@ -731,10 +902,17 @@ export default function LeavesPage() {
                 </Button>
                 <Button 
                   onClick={handleSubmitRequest}
-                  disabled={!newRequest.startDate || !newRequest.endDate || !newRequest.reason}
-                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
+                  disabled={!newRequest.startDate || !newRequest.endDate || !newRequest.reason || !!validationError || isSubmitting || getAvailableLeaves(newRequest.type) === 0}
+                  className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Submit Request
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Request'
+                  )}
                 </Button>
               </div>
             </div>
