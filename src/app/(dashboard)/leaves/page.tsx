@@ -568,7 +568,7 @@ export default function LeavesPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 items-center justify-center lg:justify-between gap-8 lg:gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 bg-clip-text text-transparent dark:from-emerald-400 dark:via-green-400 dark:to-teal-400">
               Leave Management

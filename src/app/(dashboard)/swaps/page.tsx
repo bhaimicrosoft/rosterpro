@@ -371,9 +371,9 @@ export default function SwapsPage() {
         requestedAt: new Date().toISOString(),
       };
 
-      const request = await swapService.createSwapRequest(swapData);
+      await swapService.createSwapRequest(swapData);
 
-      setSwapRequests(prev => [request, ...prev]);
+      // Don't manually update state - let real-time subscription handle it
       setNewSwapRequest({
         myShiftId: '',
         targetUserId: 'none',
@@ -422,9 +422,7 @@ export default function SwapsPage() {
       if (!swapRequest) return;
 
       await swapService.updateSwapRequest(swapId, { status: 'APPROVED' });
-      setSwapRequests(prev => prev.map(swap => 
-        swap.$id === swapId ? { ...swap, status: 'APPROVED' } : swap
-      ));
+      // Don't manually update state - let real-time subscription handle it
 
       // Send notification to requester
       try {
@@ -453,9 +451,7 @@ export default function SwapsPage() {
       if (!swapRequest) return;
 
       await swapService.updateSwapRequest(swapId, { status: 'REJECTED' });
-      setSwapRequests(prev => prev.map(swap => 
-        swap.$id === swapId ? { ...swap, status: 'REJECTED' } : swap
-      ));
+      // Don't manually update state - let real-time subscription handle it
 
       // Send notification to requester
       try {
@@ -489,10 +485,7 @@ export default function SwapsPage() {
         respondedAt: new Date().toISOString()
       });
 
-      // Update local state
-      setIncomingSwapRequests(prev => prev.map(swap => 
-        swap.$id === swapId ? { ...swap, status: 'APPROVED', responseNotes: notes } : swap
-      ));
+      // Don't manually update state - let real-time subscription handle it
 
       // Send notification to requester
       try {
@@ -535,10 +528,7 @@ export default function SwapsPage() {
         respondedAt: new Date().toISOString()
       });
 
-      // Update local state
-      setIncomingSwapRequests(prev => prev.map(swap => 
-        swap.$id === swapId ? { ...swap, status: 'REJECTED', responseNotes: notes } : swap
-      ));
+      // Don't manually update state - let real-time subscription handle it
 
       // Send notification to requester
       try {

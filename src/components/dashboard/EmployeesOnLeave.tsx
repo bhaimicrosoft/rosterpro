@@ -198,7 +198,7 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
                     </Badge>
                   </div>
                   
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
                     {employeesOnLeave.map((employee) => {
                       const user = teamMembers.find(tm => tm.$id === employee.userId);
                       if (!user) return null;
@@ -221,7 +221,7 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
                           
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm truncate">
-                              {employee.userName}
+                              {user.firstName}
                             </p>
                             <div className="flex items-center gap-2 mt-1">
                               <Badge 
