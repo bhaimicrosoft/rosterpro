@@ -62,7 +62,7 @@ const deduplicateTeamMembers = (members: User[]): User[] => {
 };
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   
   // Core state
@@ -230,7 +230,9 @@ export default function DashboardPage() {
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
       const filteredSwapRequests = isManagerOrAdmin 
         ? allSwapRequests 
-        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
+        : allSwapRequests.filter((sr: SwapRequest) => 
+            sr.requesterUserId === userId || sr.targetUserId === userId
+          );
 
       // Build team members list with user names
       const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
@@ -277,7 +279,7 @@ export default function DashboardPage() {
             }
           });
       } else {
-        // For employees, add their own pending requests
+        // For employees, add their own pending leave requests
         filteredLeaveRequests
           .filter((lr: LeaveRequest) => lr.status === 'PENDING')
           .forEach((lr: LeaveRequest) => {
@@ -288,13 +290,27 @@ export default function DashboardPage() {
             });
           });
 
+        // For employees, add swap requests they made AND swap requests directed at them
         filteredSwapRequests
           .filter((sr: SwapRequest) => sr.status === 'PENDING')
           .forEach((sr: SwapRequest) => {
+            // Determine the display text based on the type of request
+            let displayName = '';
+            
+            if (sr.requesterUserId === userId) {
+              // This is a swap request they made - waiting for target to respond
+              const targetUser = userMap.get(sr.targetUserId || '') as User;
+              displayName = targetUser ? `Waiting for ${targetUser.firstName} ${targetUser.lastName}` : 'Waiting for response';
+            } else if (sr.targetUserId === userId) {
+              // This is a swap request directed at them - they need to respond
+              const requesterUser = userMap.get(sr.requesterUserId) as User;
+              displayName = requesterUser ? `Request from ${requesterUser.firstName} ${requesterUser.lastName}` : 'Incoming request';
+            }
+            
             pendingApprovalsList.push({
               ...sr,
               _type: 'swap',
-              _employeeName: `${user.firstName} ${user.lastName}`,
+              _employeeName: displayName,
             });
           });
       }
@@ -418,7 +434,9 @@ export default function DashboardPage() {
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
       const filteredSwapRequests = isManagerOrAdmin 
         ? allSwapRequests 
-        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
+        : allSwapRequests.filter((sr: SwapRequest) => 
+            sr.requesterUserId === userId || sr.targetUserId === userId
+          );
 
       // Build team members list with user names
       const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
@@ -461,6 +479,7 @@ export default function DashboardPage() {
             }
           });
       } else {
+        // For employees, add their own pending leave requests
         filteredLeaveRequests
           .filter((lr: LeaveRequest) => lr.status === 'PENDING')
           .forEach((lr: LeaveRequest) => {
@@ -471,13 +490,27 @@ export default function DashboardPage() {
             });
           });
 
+        // For employees, add swap requests they made AND swap requests directed at them
         filteredSwapRequests
           .filter((sr: SwapRequest) => sr.status === 'PENDING')
           .forEach((sr: SwapRequest) => {
+            // Determine the display text based on the type of request
+            let displayName = '';
+            
+            if (sr.requesterUserId === userId) {
+              // This is a swap request they made - waiting for target to respond
+              const targetUser = userMap.get(sr.targetUserId || '') as User;
+              displayName = targetUser ? `Waiting for ${targetUser.firstName} ${targetUser.lastName}` : 'Waiting for response';
+            } else if (sr.targetUserId === userId) {
+              // This is a swap request directed at them - they need to respond
+              const requesterUser = userMap.get(sr.requesterUserId) as User;
+              displayName = requesterUser ? `Request from ${requesterUser.firstName} ${requesterUser.lastName}` : 'Incoming request';
+            }
+            
             pendingApprovalsList.push({
               ...sr,
               _type: 'swap',
-              _employeeName: `${user.firstName} ${user.lastName}`,
+              _employeeName: displayName,
             });
           });
       }
@@ -934,18 +967,44 @@ export default function DashboardPage() {
   const handleApprove = async () => {
     if (!selectedApproval) return;
     
+    // Validate manager role
+    if (!isManagerOrAdmin) {
+      toast({
+        title: "Unauthorized",
+        description: "Only managers and admins can approve requests.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsProcessingApproval(true);
     try {
+      console.log('🎯 Dashboard approval - Starting process:', {
+        type: selectedApproval._type,
+        requestId: selectedApproval.$id,
+        employeeName: selectedApproval._employeeName,
+        userRole: userRole,
+        comment: approvalComment
+      });
+
       if (selectedApproval._type === 'leave') {
-        await leaveService.updateLeaveRequest(selectedApproval.$id!, {
-          status: 'APPROVED' as LeaveStatus,
-          ...(approvalComment && { managerComment: approvalComment })
-        });
+        // Use the proper approveLeaveRequest method that reduces balance
+        await leaveService.approveLeaveRequest(selectedApproval.$id!);
+        
+        // Add manager comment separately if provided
+        if (approvalComment) {
+          await leaveService.updateLeaveRequest(selectedApproval.$id!, {
+            managerComment: approvalComment
+          });
+        }
+        
+        console.log('✅ Dashboard - Leave request approved with balance deduction');
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
           status: 'APPROVED' as SwapStatus,
           ...(approvalComment && { managerComment: approvalComment })
         });
+        console.log('✅ Dashboard - Swap request approved');
       }
       
       toast({
@@ -960,7 +1019,16 @@ export default function DashboardPage() {
       
       // Refresh dashboard data to show updates
       await silentRefreshDashboard();
-    } catch {
+      
+      // Refresh user data to update leave balances in UI
+      if (selectedApproval._type === 'leave') {
+        await refreshUser();
+        console.log('🔄 Dashboard - User data refreshed to update leave balances');
+      }
+      
+      console.log('🔄 Dashboard - Data refreshed after approval');
+    } catch (error) {
+      console.error('❌ Dashboard approval error:', error);
       toast({
         title: "Error",
         description: "Failed to approve request. Please try again.",

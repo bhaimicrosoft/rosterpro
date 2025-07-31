@@ -177,6 +177,63 @@ export class ShiftService {
       throw error;
     }
   }
+
+  async swapShifts(requesterShiftId: string, targetShiftId: string): Promise<{ requesterShift: Shift; targetShift: Shift }> {
+    try {
+      // Get both shifts
+      const [requesterShiftResponse, targetShiftResponse] = await Promise.all([
+        databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, requesterShiftId),
+        databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, targetShiftId)
+      ]);
+
+      const requesterShift = requesterShiftResponse as unknown as Shift;
+      const targetShift = targetShiftResponse as unknown as Shift;
+
+      // Swap the user assignments
+      const [updatedRequesterShift, updatedTargetShift] = await Promise.all([
+        databases.updateDocument(
+          DATABASE_ID,
+          COLLECTIONS.SHIFTS,
+          requesterShiftId,
+          {
+            userId: targetShift.userId,
+            status: 'SWAPPED'
+          }
+        ),
+        databases.updateDocument(
+          DATABASE_ID,
+          COLLECTIONS.SHIFTS,
+          targetShiftId,
+          {
+            userId: requesterShift.userId,
+            status: 'SWAPPED'
+          }
+        )
+      ]);
+
+      return {
+        requesterShift: updatedRequesterShift as unknown as Shift,
+        targetShift: updatedTargetShift as unknown as Shift
+      };
+    } catch (error) {
+      console.error('🚀 Error swapping shifts:', error);
+      throw error;
+    }
+  }
+
+  async getShiftDetails(shiftId: string): Promise<Shift> {
+    try {
+      const response = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.SHIFTS,
+        shiftId
+      );
+      return response as unknown as Shift;
+    } catch (error) {
+      console.error('🚀 Error getting shift details:', error);
+      throw error;
+    }
+  }
 }
 
 export const shiftService = new ShiftService();

@@ -1,6 +1,7 @@
 import { databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { ID, Query } from 'appwrite';
 import { User, Shift, LeaveRequest, SwapRequest, Notification } from '@/types';
+import { notificationService } from '@/lib/appwrite/notification-service';
 
 // Helper function to safely cast Appwrite documents to our types
 const castDocument = <T>(doc: unknown): T => doc as T;
@@ -197,6 +198,20 @@ export const shiftService = {
       throw error;
     }
   },
+
+  async getShiftDetails(shiftId: string) {
+    try {
+      const response = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.SHIFTS,
+        shiftId
+      );
+      return castDocument<Shift>(response);
+    } catch (error) {
+      console.error('🚀 Error getting shift details:', error);
+      throw error;
+    }
+  },
 };
 
 // Leave request services
@@ -265,16 +280,29 @@ export const leaveService = {
   },
 
   async approveLeaveRequest(leaveId: string) {
-    console.log('=== approveLeaveRequest called with leaveId:', leaveId);
+    console.log('🚀 === approveLeaveRequest called with leaveId:', leaveId);
+    console.log('🚀 DATABASE_ID:', DATABASE_ID);
+    console.log('🚀 COLLECTIONS.LEAVES:', COLLECTIONS.LEAVES);
+    console.log('🚀 COLLECTIONS.USERS:', COLLECTIONS.USERS);
+    console.log('🚀 COLLECTIONS.NOTIFICATIONS:', COLLECTIONS.NOTIFICATIONS);
+    
     try {
       // First get the leave request to calculate days and get user info
+      console.log('🚀 Step 1: Getting leave request...');
       const leaveRequest = await databases.getDocument(
         DATABASE_ID,
         COLLECTIONS.LEAVES,
         leaveId
       );
 
-      console.log('Leave request fetched:', leaveRequest);
+      console.log('🚀 Step 1 SUCCESS: Leave request fetched:', {
+        id: leaveRequest.$id,
+        userId: leaveRequest.userId,
+        type: leaveRequest.type,
+        startDate: leaveRequest.startDate,
+        endDate: leaveRequest.endDate,
+        status: leaveRequest.status
+      });
 
       // Calculate number of days (inclusive of start and end date)
       const startDate = new Date(leaveRequest.startDate);
@@ -282,52 +310,88 @@ export const leaveService = {
       const timeDiff = endDate.getTime() - startDate.getTime();
       const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1; // +1 to include both start and end dates
 
-      console.log(`Calculated ${daysDiff} days for leave request from ${leaveRequest.startDate} to ${leaveRequest.endDate}`);
+      console.log(`🚀 Step 2: Calculated ${daysDiff} days for leave request from ${leaveRequest.startDate} to ${leaveRequest.endDate}`);
 
       // Get current user to get their leave balances
+      console.log('🚀 Step 3: Getting user data for userId:', leaveRequest.userId);
       const currentUser = await databases.getDocument(
         DATABASE_ID,
         COLLECTIONS.USERS,
         leaveRequest.userId
       );
 
-      console.log('Current user before deduction:', {
-        userId: leaveRequest.userId,
+      console.log('🚀 Step 3 SUCCESS: Current user data fetched:', {
+        userId: currentUser.$id,
+        firstName: currentUser.firstName,
+        lastName: currentUser.lastName,
         paidLeaves: currentUser.paidLeaves,
         sickLeaves: currentUser.sickLeaves,
         compOffs: currentUser.compOffs,
-        leaveType: leaveRequest.type,
-        daysDiff
+        leaveTypeRequested: leaveRequest.type,
+        daysToDeduct: daysDiff
       });
 
-      // Calculate new balances based on leave type
+      // Calculate new balances based on leave type with explicit field checking
       const updateData: { paidLeaves?: number; sickLeaves?: number; compOffs?: number } = {};
+      let currentBalance = 0;
+      let newBalance = 0;
       
       switch (leaveRequest.type) {
         case 'PAID':
-          updateData.paidLeaves = Math.max(0, (currentUser.paidLeaves || 0) - daysDiff);
+          currentBalance = currentUser.paidLeaves || 0;
+          newBalance = Math.max(0, currentBalance - daysDiff);
+          updateData.paidLeaves = newBalance;
+          console.log(`🚀 PAID LEAVE: Current=${currentBalance}, Deducting=${daysDiff}, New=${newBalance}`);
           break;
         case 'SICK':
-          updateData.sickLeaves = Math.max(0, (currentUser.sickLeaves || 0) - daysDiff);
+          currentBalance = currentUser.sickLeaves || 0;
+          newBalance = Math.max(0, currentBalance - daysDiff);
+          updateData.sickLeaves = newBalance;
+          console.log(`🚀 SICK LEAVE: Current=${currentBalance}, Deducting=${daysDiff}, New=${newBalance}`);
           break;
         case 'COMP_OFF':
-          updateData.compOffs = Math.max(0, (currentUser.compOffs || 0) - daysDiff);
+          currentBalance = currentUser.compOffs || 0;
+          newBalance = Math.max(0, currentBalance - daysDiff);
+          updateData.compOffs = newBalance;
+          console.log(`🚀 COMP_OFF LEAVE: Current=${currentBalance}, Deducting=${daysDiff}, New=${newBalance}`);
           break;
+        default:
+          throw new Error(`Unknown leave type: ${leaveRequest.type}`);
       }
 
-      console.log('Update data to be applied:', updateData);
+      console.log('🚀 Step 4: Update data to be applied:', updateData);
+
+      // Validate that we have enough balance
+      if (currentBalance < daysDiff) {
+        console.log(`🚀 ERROR: Insufficient balance. Current=${currentBalance}, Required=${daysDiff}`);
+        throw new Error(`Insufficient ${leaveRequest.type.toLowerCase().replace('_', ' ')} leave balance. Available: ${currentBalance}, Required: ${daysDiff}`);
+      }
 
       // Update user's leave balance
-      await databases.updateDocument(
+      console.log('🚀 Step 5: Updating user leave balance...');
+      console.log('🚀 Step 5: Calling updateDocument with:', {
+        database: DATABASE_ID,
+        collection: COLLECTIONS.USERS,
+        document: leaveRequest.userId,
+        data: updateData
+      });
+      
+      const updatedUser = await databases.updateDocument(
         DATABASE_ID,
         COLLECTIONS.USERS,
         leaveRequest.userId,
         updateData
       );
 
-      console.log('User leave balance updated successfully');
+      console.log('🚀 Step 5 SUCCESS: User leave balance updated. New values:', {
+        userId: updatedUser.$id,
+        paidLeaves: updatedUser.paidLeaves,
+        sickLeaves: updatedUser.sickLeaves,
+        compOffs: updatedUser.compOffs
+      });
 
       // Update leave request status to approved
+      console.log('🚀 Step 6: Updating leave request status...');
       const leave = await databases.updateDocument(
         DATABASE_ID,
         COLLECTIONS.LEAVES,
@@ -335,10 +399,36 @@ export const leaveService = {
         { status: 'APPROVED' }
       );
       
-      console.log('Leave request status updated to APPROVED');
+      console.log('🚀 Step 6 SUCCESS: Leave request status updated to APPROVED');
+
+      // Create notification to employee about approval
+      try {
+        console.log('🚀 Step 7: Creating approval notification for user:', leaveRequest.userId);
+        
+        await notificationService.createNotification({
+          userId: leaveRequest.userId,
+          type: 'LEAVE_APPROVED',
+          title: 'Leave Request Approved',
+          message: `Your ${leaveRequest.type.toLowerCase().replace('_', ' ')} leave request from ${leaveRequest.startDate} to ${leaveRequest.endDate} has been approved. ${daysDiff} day${daysDiff > 1 ? 's' : ''} have been deducted from your balance.`,
+          read: false
+        });
+        console.log('🚀 Step 7 SUCCESS: Approval notification created successfully');
+      } catch (notifError) {
+        console.error('🚀 Step 7 FAILED: Failed to create approval notification:', notifError);
+        // Don't block the approval if notification fails
+      }
+
+      console.log('🚀 ALL STEPS COMPLETED: Returning approved leave request');
       return castDocument<LeaveRequest>(leave);
     } catch (error) {
-      console.error('ERROR in approveLeaveRequest:', error);
+      console.error('🚀 ERROR in approveLeaveRequest:', error);
+      if (error instanceof Error) {
+        console.error('🚀 ERROR details:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack
+        });
+      }
       throw error;
     }
   },
@@ -378,6 +468,51 @@ export const leaveService = {
       return castDocuments<LeaveRequest>(response.documents);
     } catch (error) {
       console.error('Error getting approved leaves by date range:', error);
+      throw error;
+    }
+  },
+
+  async rejectLeaveRequest(leaveId: string) {
+    console.log('🚀 === rejectLeaveRequest called with leaveId:', leaveId);
+    try {
+      // First get the leave request to get user info
+      const leaveRequest = await databases.getDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId
+      );
+
+      console.log('🚀 Leave request fetched for rejection:', leaveRequest);
+
+      // Update leave request status to rejected
+      const leave = await databases.updateDocument(
+        DATABASE_ID,
+        COLLECTIONS.LEAVES,
+        leaveId,
+        { status: 'REJECTED' }
+      );
+      
+      console.log('🚀 Leave request status updated to REJECTED');
+
+      // Create notification to employee about rejection
+      try {
+        console.log('🚀 Creating rejection notification for user:', leaveRequest.userId);
+        await notificationService.createNotification({
+          userId: leaveRequest.userId,
+          type: 'LEAVE_REJECTED',
+          title: 'Leave Request Rejected',
+          message: `Your ${leaveRequest.type.toLowerCase().replace('_', ' ')} leave request from ${leaveRequest.startDate} to ${leaveRequest.endDate} has been rejected`,
+          read: false
+        });
+        console.log('🚀 Rejection notification created successfully');
+      } catch (notifError) {
+        console.error('🚀 Failed to create rejection notification:', notifError);
+        // Don't block the rejection if notification fails
+      }
+
+      return castDocument<LeaveRequest>(leave);
+    } catch (error) {
+      console.error('🚀 ERROR in rejectLeaveRequest:', error);
       throw error;
     }
   },
@@ -456,70 +591,70 @@ export const swapService = {
       throw error;
     }
   },
-};
 
-// Notification services
-export const notificationService = {
-  async createNotification(notificationData: Omit<Notification, '$id' | '$createdAt'>) {
+  async approveAndExecuteSwap(swapId: string, responseNotes?: string) {
     try {
-      const notification = await databases.createDocument(
+      console.log('🚀 === approveAndExecuteSwap CALLED with swapId:', swapId);
+      
+      // First get the swap request details
+      const swapResponse = await databases.getDocument(
         DATABASE_ID,
-        COLLECTIONS.NOTIFICATIONS,
-        ID.unique(),
-        notificationData
+        COLLECTIONS.SWAP_REQUESTS,
+        swapId
       );
-      return castDocument<Notification>(notification);
-    } catch (error) {
+      const swapRequest = castDocument<SwapRequest>(swapResponse);
       
-      throw error;
-    }
-  },
+      console.log('🚀 Swap request details:', swapRequest);
 
-  async getNotificationsByUser(userId: string) {
-    try {
-      const response = await databases.listDocuments(
-        DATABASE_ID,
-        COLLECTIONS.NOTIFICATIONS,
-        [
-          Query.equal('userId', userId),
-          Query.orderDesc('$createdAt'),
-          Query.limit(50),
-        ]
-      );
-      return castDocuments<Notification>(response.documents);
-    } catch (error) {
-      
-      throw error;
-    }
-  },
+      // Perform the actual shift swap
+      const [requesterShiftResponse, targetShiftResponse] = await Promise.all([
+        databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, swapRequest.requesterShiftId),
+        databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, swapRequest.targetShiftId)
+      ]);
 
-  async markAsRead(notificationId: string) {
-    try {
-      const notification = await databases.updateDocument(
-        DATABASE_ID,
-        COLLECTIONS.NOTIFICATIONS,
-        notificationId,
-        { read: true }
-      );
-      return castDocument<Notification>(notification);
-    } catch (error) {
+      const requesterShift = castDocument<Shift>(requesterShiftResponse);
+      const targetShift = castDocument<Shift>(targetShiftResponse);
       
-      throw error;
-    }
-  },
+      console.log('🚀 Swapping shifts:', { requesterShift, targetShift });
 
-  async markAllAsRead(userId: string) {
-    try {
-      const notifications = await this.getNotificationsByUser(userId);
-      const unreadNotifications = notifications.filter(n => !n.read);
+      // Swap the user assignments
+      await Promise.all([
+        databases.updateDocument(
+          DATABASE_ID,
+          COLLECTIONS.SHIFTS,
+          swapRequest.requesterShiftId,
+          {
+            userId: targetShift.userId,
+            status: 'SWAPPED'
+          }
+        ),
+        databases.updateDocument(
+          DATABASE_ID,
+          COLLECTIONS.SHIFTS,
+          swapRequest.targetShiftId,
+          {
+            userId: requesterShift.userId,
+            status: 'SWAPPED'
+          }
+        )
+      ]);
+
+      console.log('🚀 Shifts swapped successfully');
+
+      // Update the swap request status
+      const updateData = { 
+        status: 'APPROVED' as const,
+        respondedAt: new Date().toISOString(),
+        ...(responseNotes && { responseNotes })
+      };
+
+      const updatedSwap = await this.updateSwapRequest(swapId, updateData);
       
-      const promises = unreadNotifications.map(notification =>
-        this.markAsRead(notification.$id)
-      );
+      console.log('🚀 Swap request updated:', updatedSwap);
       
-      await Promise.all(promises);
+      return updatedSwap;
     } catch (error) {
-      
+      console.error('🚀 Error approving and executing swap:', error);
       throw error;
     }
   },

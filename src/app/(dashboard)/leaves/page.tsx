@@ -15,12 +15,12 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { LeaveRequest, User as UserType } from '@/types';
 import { leaveService, userService } from '@/lib/appwrite/database';
-import { notificationService } from '@/lib/appwrite/database';
+import { notificationService } from '@/lib/appwrite/notification-service';
 import { useToast } from '@/hooks/use-toast';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 export default function LeavesPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<LeaveRequest[]>([]);
@@ -54,8 +54,13 @@ export default function LeavesPage() {
         setTeamMembers(users);
       }
       
-      setLeaveRequests(requests);
-      setFilteredRequests(requests);
+      // Ensure unique requests by ID (remove any duplicates from API)
+      const uniqueRequests = requests.filter((request, index, self) => 
+        index === self.findIndex(r => r.$id === request.$id)
+      );
+      
+      setLeaveRequests(uniqueRequests);
+      setFilteredRequests(uniqueRequests);
     } catch {
       
       setLeaveRequests([]);
@@ -82,7 +87,12 @@ export default function LeavesPage() {
         users = await userService.getAllUsers();
       }
 
-      setLeaveRequests(requests);
+      // Ensure unique requests by ID (remove any duplicates from API)
+      const uniqueRequests = requests.filter((request, index, self) => 
+        index === self.findIndex(r => r.$id === request.$id)
+      );
+
+      setLeaveRequests(uniqueRequests);
       setTeamMembers(users);
       
     } catch {
@@ -142,8 +152,10 @@ export default function LeavesPage() {
               setLeaveRequests(prevRequests => {
                 // Remove any existing request with the same ID to prevent duplicates
                 const filteredRequests = prevRequests.filter(lr => lr.$id !== payload.$id);
+                
+                // Only add the request if it's a valid operation
                 if (eventType === 'CREATE' || (eventType === 'UPDATE' && payload.status !== 'CANCELLED')) {
-                  const newRequest: LeaveRequest = {
+                  const updatedRequest: LeaveRequest = {
                     $id: payload.$id,
                     userId: payload.userId,
                     startDate: payload.startDate,
@@ -156,16 +168,27 @@ export default function LeavesPage() {
                     $updatedAt: payload.$updatedAt || new Date().toISOString()
                   };
                   
-                  // Add to beginning to maintain chronological order (newest first)
-                  return [newRequest, ...filteredRequests];
+                  // For CREATE events, add to beginning. For UPDATE events, maintain existing order
+                  if (eventType === 'CREATE') {
+                    return [updatedRequest, ...filteredRequests];
+                  } else {
+                    // For UPDATE events, find the original position or add to beginning if not found
+                    const originalIndex = prevRequests.findIndex(lr => lr.$id === payload.$id);
+                    if (originalIndex >= 0) {
+                      const newRequests = [...filteredRequests];
+                      newRequests.splice(originalIndex, 0, updatedRequest);
+                      return newRequests;
+                    } else {
+                      return [updatedRequest, ...filteredRequests];
+                    }
+                  }
                 }
                 return filteredRequests;
               });
             } else if (hasDeleteEvent) {
               // For DELETE: Remove leave request directly
               setLeaveRequests(prevRequests => {
-                const filtered = prevRequests.filter(lr => lr.$id !== payload.$id);
-                return filtered;
+                return prevRequests.filter(lr => lr.$id !== payload.$id);
               });
             }
             
@@ -230,7 +253,12 @@ export default function LeavesPage() {
       filtered = filtered.filter(req => req.type === filterType);
     }
     
-    setFilteredRequests(filtered);
+    // Ensure unique requests by ID (remove any duplicates)
+    const uniqueFiltered = filtered.filter((request, index, self) => 
+      index === self.findIndex(r => r.$id === request.$id)
+    );
+    
+    setFilteredRequests(uniqueFiltered);
   }, [leaveRequests, filterStatus, filterType]);
 
   // Check if a date range conflicts with existing active leaves
@@ -373,7 +401,11 @@ export default function LeavesPage() {
         }
       }
 
-      setLeaveRequests(prev => [request, ...prev]);
+      setLeaveRequests(prev => {
+        // Remove any existing request with the same ID (just in case) and add the new one
+        const filtered = prev.filter(r => r.$id !== request.$id);
+        return [request, ...filtered];
+      });
       setNewRequest({
         startDate: '',
         endDate: '',
@@ -399,63 +431,60 @@ export default function LeavesPage() {
   };
 
   const handleApproveRequest = useCallback(async (requestId: string) => {
+    alert('🚀 APPROVE BUTTON CLICKED! RequestId: ' + requestId + ', User Role: ' + user?.role);
     console.log('🚀 === handleApproveRequest CALLED with requestId:', requestId);
     console.log('🚀 User role:', user?.role);
+    console.log('🚀 leaveService object:', leaveService);
+    console.log('🚀 leaveService.approveLeaveRequest:', leaveService.approveLeaveRequest);
+    
     if (user?.role === 'EMPLOYEE') {
       console.log('🚀 User is EMPLOYEE, returning early');
       return;
     }
 
     try {
-      // Find the request to get employee info and details
-      const request = leaveRequests.find(req => req.$id === requestId);
-      if (!request) {
-        console.log('🚀 Request not found in leaveRequests array');
-        return;
-      }
-
-      console.log('🚀 Found request:', request);
-      console.log('🚀 leaveService object:', leaveService);
-      console.log('🚀 leaveService.approveLeaveRequest method:', leaveService.approveLeaveRequest);
       console.log('🚀 About to call leaveService.approveLeaveRequest...');
 
-      // Use the updated approval method that deducts leave balance
+      // Use the updated approval method that deducts leave balance AND creates notification
       await leaveService.approveLeaveRequest(requestId);
       
       console.log('🚀 leaveService.approveLeaveRequest completed successfully');
 
-      setLeaveRequests(prev => prev.map(req => 
-        req.$id === requestId ? { ...req, status: 'APPROVED' as const } : req
-      ));
+      // Refresh user data to get updated leave balances for all users
+      console.log('🚀 Refreshing user data to update leave balances...');
+      await refreshUser();
+      console.log('🚀 User data refreshed successfully');
 
-      // Send notification to employee
-      try {
-        const employee = teamMembers.find(member => member.$id === request.userId) || 
-                        await userService.getUserById(request.userId);
-        
-        if (employee) {
-          await notificationService.createNotification({
-            userId: request.userId,
-            type: 'LEAVE_APPROVED',
-            title: 'Leave Request Approved',
-            message: `Your ${request.type.toLowerCase().replace('_', ' ')} leave request from ${request.startDate} to ${request.endDate} has been approved`,
-            read: false
-          });
-        }
-      } catch (error) {
-        console.error('Failed to send approval notification:', error);
-      }
+      // Update local state to reflect the approval
+      setLeaveRequests(prev => {
+        const updated = prev.map(req => 
+          req.$id === requestId ? { ...req, status: 'APPROVED' as const } : req
+        );
+        // Ensure no duplicates
+        return updated.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+      });
 
       // Calculate days for the toast message
-      const startDate = new Date(request.startDate);
-      const endDate = new Date(request.endDate);
-      const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1;
+      const request = leaveRequests.find(req => req.$id === requestId);
+      if (request) {
+        const startDate = new Date(request.startDate);
+        const endDate = new Date(request.endDate);
+        const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1;
 
-      toast({
-        title: "Leave request approved",
-        description: `The leave request has been approved and ${daysDiff} day${daysDiff > 1 ? 's' : ''} have been deducted from the employee's ${request.type.toLowerCase().replace('_', ' ')} balance.`,
-        variant: "success",
-      });
+        toast({
+          title: "Leave request approved",
+          description: `The leave request has been approved and ${daysDiff} day${daysDiff > 1 ? 's' : ''} have been deducted from the employee's ${request.type.toLowerCase().replace('_', ' ')} balance.`,
+          variant: "success",
+        });
+      } else {
+        toast({
+          title: "Leave request approved",
+          description: "The leave request has been approved and leave balance updated.",
+          variant: "success",
+        });
+      }
     } catch (error) {
       console.error('🚀 Error approving leave request:', error);
       toast({
@@ -464,37 +493,29 @@ export default function LeavesPage() {
         variant: "destructive",
       });
     }
-  }, [user?.role, leaveRequests, teamMembers, toast]);
+  }, [user?.role, leaveRequests, toast, refreshUser]);
 
   const handleRejectRequest = useCallback(async (requestId: string) => {
     if (user?.role === 'EMPLOYEE') return;
 
     try {
-      // Find the request to get employee info and details
-      const request = leaveRequests.find(req => req.$id === requestId);
-      if (!request) return;
-
-      await leaveService.updateLeaveRequest(requestId, { status: 'REJECTED' });
-      setLeaveRequests(prev => prev.map(req => 
-        req.$id === requestId ? { ...req, status: 'REJECTED' as const } : req
-      ));
-
-      // Send notification to employee
-      try {
-        await notificationService.createNotification({
-          userId: request.userId,
-          type: 'LEAVE_REJECTED',
-          title: 'Leave Request Rejected',
-          message: `Your ${request.type.toLowerCase().replace('_', ' ')} leave request from ${request.startDate} to ${request.endDate} has been rejected`,
-          read: false
-        });
-      } catch (error) {
-        console.error('Failed to send rejection notification:', error);
-      }
+      // Use the updated rejection method that creates notification
+      await leaveService.rejectLeaveRequest(requestId);
+      
+      // Update local state to reflect the rejection
+      setLeaveRequests(prev => {
+        const updated = prev.map(req => 
+          req.$id === requestId ? { ...req, status: 'REJECTED' as const } : req
+        );
+        // Ensure no duplicates
+        return updated.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+      });
 
       toast({
         title: "Leave request rejected",
-        description: "The leave request has been rejected.",
+        description: "The leave request has been rejected and the employee has been notified.",
         variant: "info",
       });
     } catch (error) {
@@ -505,14 +526,20 @@ export default function LeavesPage() {
         variant: "destructive",
       });
     }
-  }, [user?.role, leaveRequests, toast]);
+  }, [user?.role, toast]);
 
   const handleCancelRequest = useCallback(async (requestId: string) => {
     try {
       await leaveService.updateLeaveRequest(requestId, { status: 'CANCELLED' });
-      setLeaveRequests(prev => prev.map(req => 
-        req.$id === requestId ? { ...req, status: 'CANCELLED' as const } : req
-      ));
+      setLeaveRequests(prev => {
+        const updated = prev.map(req => 
+          req.$id === requestId ? { ...req, status: 'CANCELLED' as const } : req
+        );
+        // Ensure no duplicates
+        return updated.filter((request, index, self) => 
+          index === self.findIndex(r => r.$id === request.$id)
+        );
+      });
       
       toast({
         title: "Leave request cancelled",

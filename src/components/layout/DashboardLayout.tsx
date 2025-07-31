@@ -49,7 +49,7 @@ import {
   ChevronDown,
   CheckCheck,
 } from 'lucide-react';
-import { notificationService } from '@/lib/appwrite/database';
+import { notificationService } from '@/lib/appwrite/notification-service';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { Notification } from '@/types';
 
@@ -131,7 +131,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     // Mark notification as read
   const markAsRead = async (notificationId: string) => {
     try {
-      await notificationService.markAsRead(notificationId);
+      await notificationService.markNotificationAsRead(notificationId);
       setNotifications(prev => 
         prev.map(n => n.$id === notificationId ? { ...n, read: true } : n)
       );
@@ -144,7 +144,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const markAllAsRead = async () => {
     if (user?.$id) {
       try {
-        await notificationService.markAllAsRead(user.$id);
+        await notificationService.markAllNotificationsAsRead(user.$id);
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       } catch {
         // Failed to mark all notifications as read
