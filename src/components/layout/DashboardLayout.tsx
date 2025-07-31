@@ -40,7 +40,6 @@ import {
   Bell,
   Menu,
   LogOut,
-  Settings,
   User,
   Shield,
   RefreshCw,
@@ -133,7 +132,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     {
       title: 'Dashboard',
       icon: Shield,
-      href: '/dashboard',
+      href: '/home',
       roles: ['admin', 'manager', 'employee', 'ADMIN', 'MANAGER', 'EMPLOYEE'],
     },
     {
@@ -355,10 +354,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 <DropdownMenuItem onClick={() => router.push('/profile')}>
                   <User className="mr-2 h-4 w-4" />
                   Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-red-600">

@@ -27,7 +27,7 @@ export default function LoginPage() {
     try {
       const success = await login(username, password);
       if (success) {
-        router.push('/dashboard');
+        router.push('/home');
       } else {
         setError('Invalid username or password');
       }
