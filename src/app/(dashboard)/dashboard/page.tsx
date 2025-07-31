@@ -187,7 +187,7 @@ export default function DashboardPage() {
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
       const filteredSwapRequests = isManagerOrAdmin 
         ? allSwapRequests 
-        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
+        : allSwapRequests.filter((sr: SwapRequest) => sr.targetUserId === userId && sr.requesterUserId !== userId); // Only incoming requests for employees
 
       // Build team members list with user names
       const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
@@ -196,7 +196,7 @@ export default function DashboardPage() {
       const dashboardStats: DashboardStats = {
         totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
-        pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
+        pendingSwapRequests: isManagerOrAdmin ? 0 : filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length, // Only show swap requests for employees
         upcomingShifts: upcomingShifts.length,
       };
 
@@ -218,19 +218,8 @@ export default function DashboardPage() {
             }
           });
 
-        // Add pending swap requests
-        filteredSwapRequests
-          .filter((sr: SwapRequest) => sr.status === 'PENDING')
-          .forEach((sr: SwapRequest) => {
-            const requester = userMap.get(sr.requesterUserId) as User;
-            if (requester) {
-              pendingApprovalsList.push({
-                ...sr,
-                _type: 'swap',
-                _employeeName: `${requester.firstName} ${requester.lastName}`,
-              });
-            }
-          });
+        // Note: Managers/Admins should NOT see swap requests in pending approvals
+        // Swap requests are handled directly between employees, not requiring manager approval
       } else {
         // For employees, add their own pending requests
         filteredLeaveRequests
@@ -246,11 +235,14 @@ export default function DashboardPage() {
         filteredSwapRequests
           .filter((sr: SwapRequest) => sr.status === 'PENDING')
           .forEach((sr: SwapRequest) => {
-            pendingApprovalsList.push({
-              ...sr,
-              _type: 'swap',
-              _employeeName: `${user.firstName} ${user.lastName}`,
-            });
+            const requester = userMap.get(sr.requesterUserId) as User;
+            if (requester) {
+              pendingApprovalsList.push({
+                ...sr,
+                _type: 'swap',
+                _employeeName: `${requester.firstName} ${requester.lastName}`,
+              });
+            }
           });
       }
 
@@ -346,7 +338,7 @@ export default function DashboardPage() {
         : allLeaveRequests.filter((lr: LeaveRequest) => lr.userId === userId);
       const filteredSwapRequests = isManagerOrAdmin 
         ? allSwapRequests 
-        : allSwapRequests.filter((sr: SwapRequest) => sr.requesterUserId === userId);
+        : allSwapRequests.filter((sr: SwapRequest) => sr.targetUserId === userId && sr.requesterUserId !== userId); // Only incoming requests for employees
 
       // Build team members list with user names
       const userMap = new Map(displayUsers.map((u: User) => [u.$id, u]));
@@ -402,11 +394,14 @@ export default function DashboardPage() {
         filteredSwapRequests
           .filter((sr: SwapRequest) => sr.status === 'PENDING')
           .forEach((sr: SwapRequest) => {
-            pendingApprovalsList.push({
-              ...sr,
-              _type: 'swap',
-              _employeeName: `${user.firstName} ${user.lastName}`,
-            });
+            const requester = userMap.get(sr.requesterUserId) as User;
+            if (requester) {
+              pendingApprovalsList.push({
+                ...sr,
+                _type: 'swap',
+                _employeeName: `${requester.firstName} ${requester.lastName}`,
+              });
+            }
           });
       }
 
@@ -562,13 +557,8 @@ export default function DashboardPage() {
   const handleSwapUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {
       if (eventType === 'CREATE') {
-        setStats(prev => ({
-          ...prev,
-          pendingSwapRequests: prev.pendingSwapRequests + 1
-        }));
-        
-        // Add to pending approvals if user can approve
-        if ((userRole === 'MANAGER' || userRole === 'ADMIN') && payload.status === 'PENDING') {
+        // Add to pending approvals only if user is an employee and this is a request targeting them
+        if (userRole === 'EMPLOYEE' && payload.targetUserId === userId && payload.requesterUserId !== userId && payload.status === 'PENDING') {
           const requestUser = await userService.getUserById(payload.requesterUserId as string);
           const newApproval: DashboardApprovalRequest = {
             $id: payload.$id as string,
@@ -587,6 +577,12 @@ export default function DashboardPage() {
             _employeeName: `${requestUser.firstName} ${requestUser.lastName}`
           };
           setPendingApprovals(prev => [...prev, newApproval]);
+          
+          // Update stats for employees
+          setStats(prev => ({
+            ...prev,
+            pendingSwapRequests: prev.pendingSwapRequests + 1
+          }));
         }
       } else if (eventType === 'UPDATE') {
         if (payload.status !== 'PENDING') {
@@ -607,7 +603,7 @@ export default function DashboardPage() {
       
       await silentRefreshDashboard();
     }
-  }, [userRole, silentRefreshDashboard]);
+  }, [userRole, userId, silentRefreshDashboard]);
 
   // Helper function to refresh user count from database
   const refreshUserCount = useCallback(async () => {
@@ -814,11 +810,42 @@ export default function DashboardPage() {
           status: 'APPROVED' as LeaveStatus,
           ...(approvalComment && { managerComment: approvalComment })
         });
+
+        // Create notification for employee
+        try {
+          const { notificationService } = await import('@/lib/appwrite/notification-service');
+          await notificationService.createLeaveResponseNotification(
+            selectedApproval.userId!,
+            'APPROVED',
+            selectedApproval.type!,
+            selectedApproval.startDate!,
+            selectedApproval.endDate!,
+            selectedApproval.$id!,
+            approvalComment
+          );
+        } catch (notificationError) {
+          console.error('Error creating leave approval notification:', notificationError);
+        }
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
           status: 'APPROVED' as SwapStatus,
           ...(approvalComment && { managerComment: approvalComment })
         });
+
+        // Create notification for requester
+        try {
+          const { notificationService } = await import('@/lib/appwrite/notification-service');
+          const swapRequest = selectedApproval as SwapRequest;
+          await notificationService.createSwapResponseNotification(
+            swapRequest.requesterUserId,
+            'APPROVED',
+            'Your shift',
+            selectedApproval.$id!,
+            user ? `${user.firstName} ${user.lastName}` : 'Manager'
+          );
+        } catch (notificationError) {
+          console.error('Error creating swap approval notification:', notificationError);
+        }
       }
       
       toast({
@@ -855,11 +882,42 @@ export default function DashboardPage() {
           status: 'REJECTED' as LeaveStatus,
           ...(approvalComment && { managerComment: approvalComment })
         });
+
+        // Create notification for employee
+        try {
+          const { notificationService } = await import('@/lib/appwrite/notification-service');
+          await notificationService.createLeaveResponseNotification(
+            selectedApproval.userId!,
+            'REJECTED',
+            selectedApproval.type!,
+            selectedApproval.startDate!,
+            selectedApproval.endDate!,
+            selectedApproval.$id!,
+            approvalComment
+          );
+        } catch (notificationError) {
+          console.error('Error creating leave rejection notification:', notificationError);
+        }
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
           status: 'REJECTED' as SwapStatus,
           ...(approvalComment && { managerComment: approvalComment })
         });
+
+        // Create notification for requester
+        try {
+          const { notificationService } = await import('@/lib/appwrite/notification-service');
+          const swapRequest = selectedApproval as SwapRequest;
+          await notificationService.createSwapResponseNotification(
+            swapRequest.requesterUserId,
+            'REJECTED',
+            'Your shift',
+            selectedApproval.$id!,
+            user ? `${user.firstName} ${user.lastName}` : 'Manager'
+          );
+        } catch (notificationError) {
+          console.error('Error creating swap rejection notification:', notificationError);
+        }
       }
       
       toast({
@@ -1568,10 +1626,11 @@ export default function DashboardPage() {
         </div>
 
         {/* Weekly Schedule */}
-        <Card>
+        <Card className="border-0 shadow-lg overflow-hidden bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20">
+          <div className="h-1 bg-gradient-to-r from-violet-500 to-purple-600" />
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <CalendarDays className="h-5 w-5" />
+              <CalendarDays className="h-5 w-5 text-violet-600" />
               Weekly Schedule
             </CardTitle>
             <CardDescription>
@@ -1587,8 +1646,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Two Column Layout for Additional Info */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Responsive Layout for Additional Info */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Employees on Leave This Week */}
           <EmployeesOnLeave
             teamMembers={teamMembers}
@@ -1596,11 +1655,12 @@ export default function DashboardPage() {
           />
 
           {/* Pending Approvals */}
-          <Card>
+          <Card className={`border-0 shadow-lg overflow-hidden ${!isManagerOrAdmin ? 'bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20' : 'bg-white dark:bg-slate-800'}`}>
+            <div className={`h-1 ${!isManagerOrAdmin ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-blue-500 to-indigo-600'}`} />
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <AlertCircle className="h-5 w-5" />
-                {isManagerOrAdmin ? 'Pending Approvals' : 'My Pending Requests'}
+                {isManagerOrAdmin ? 'Pending Approvals' : 'Incoming Swap Request Approval'}
               </CardTitle>
               <CardDescription>
                 {pendingApprovals.length} item{pendingApprovals.length !== 1 ? 's' : ''} requiring attention
@@ -1627,20 +1687,34 @@ export default function DashboardPage() {
                   {pendingApprovals.slice(0, 5).map((approval) => (
                     <div 
                       key={approval.$id} 
-                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                      className={`flex items-center justify-between p-4 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md border-l-4 ${
+                        approval._type === 'leave' 
+                          ? 'bg-gradient-to-r from-blue-50 to-blue-100/50 hover:from-blue-100 hover:to-blue-200/50 border-l-blue-500 dark:from-blue-900/20 dark:to-blue-800/20 dark:hover:from-blue-800/30 dark:hover:to-blue-700/30'
+                          : 'bg-gradient-to-r from-emerald-50 to-emerald-100/50 hover:from-emerald-100 hover:to-emerald-200/50 border-l-emerald-500 dark:from-emerald-900/20 dark:to-emerald-800/20 dark:hover:from-emerald-800/30 dark:hover:to-emerald-700/30'
+                      }`}
                       onClick={() => handleApprovalClick(approval)}
                     >
                       <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <div className="flex-shrink-0">
                           {approval._type === 'leave' ? (
-                            <FileText className="h-4 w-4 text-blue-500" />
+                            <div className="p-2 bg-blue-200 rounded-lg">
+                              <FileText className="h-4 w-4 text-blue-700" />
+                            </div>
                           ) : (
-                            <RotateCcw className="h-4 w-4 text-green-500" />
+                            <div className="p-2 bg-emerald-200 rounded-lg">
+                              <RotateCcw className="h-4 w-4 text-emerald-700" />
+                            </div>
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm">{approval._employeeName}</p>
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className={`font-semibold text-sm ${
+                            approval._type === 'leave' ? 'text-blue-900 dark:text-blue-100' : 'text-emerald-900 dark:text-emerald-100'
+                          }`}>
+                            {approval._employeeName}
+                          </p>
+                          <p className={`text-xs truncate ${
+                            approval._type === 'leave' ? 'text-blue-700 dark:text-blue-300' : 'text-emerald-700 dark:text-emerald-300'
+                          }`}>
                             {approval._type === 'leave' ? (
                               approval.startDate && approval.endDate ? 
                                 `${formatDate(approval.startDate)} to ${formatDate(approval.endDate)}` : 
@@ -1651,7 +1725,16 @@ export default function DashboardPage() {
                           </p>
                         </div>
                       </div>
-                      <Badge variant="outline" className="text-xs">Pending</Badge>
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs font-medium ${
+                          approval._type === 'leave' 
+                            ? 'border-blue-300 text-blue-700 bg-blue-100 dark:border-blue-600 dark:text-blue-300 dark:bg-blue-900/30'
+                            : 'border-emerald-300 text-emerald-700 bg-emerald-100 dark:border-emerald-600 dark:text-emerald-300 dark:bg-emerald-900/30'
+                        }`}
+                      >
+                        Pending
+                      </Badge>
                     </div>
                   ))}
                   {pendingApprovals.length > 5 && (

@@ -1,7 +1,7 @@
 import { databases, DATABASE_ID, COLLECTIONS } from './config';
 import { Shift } from '@/types';
 import { Query } from 'appwrite';
-import { leaveService } from './database';
+import { leaveService } from './leave-service';
 
 export class ShiftService {
   async getAllShifts(): Promise<Shift[]> {
@@ -35,15 +35,15 @@ export class ShiftService {
     }
   }
 
-  async getShiftsByDateRange(startDate: string, endDate: string | null = null): Promise<Shift[]> {
+  async getShiftsByDateRange(startDate: string, endDate?: string): Promise<Shift[]> {
     try {
       const queries = [
         Query.greaterThanEqual('date', startDate),
         Query.orderAsc('date')
       ];
       
-      // Only add end date filter if endDate is provided
-      if (endDate) {
+      // Only add end date filter if endDate is provided and not null/undefined
+      if (endDate && endDate !== null && endDate !== undefined) {
         queries.splice(1, 0, Query.lessThanEqual('date', endDate));
       }
       
@@ -64,6 +64,24 @@ export class ShiftService {
     return this.getShiftsByDateRange(today, today);
   }
 
+  async getAllFutureShifts(): Promise<Shift[]> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.SHIFTS,
+        [
+          Query.greaterThanEqual('date', today),
+          Query.orderAsc('date')
+        ]
+      );
+      return response.documents as unknown as Shift[];
+    } catch (error) {
+      
+      throw error;
+    }
+  }
+
   async getUpcomingShifts(userId: string, days: number = 7): Promise<Shift[]> {
     try {
       const today = new Date().toISOString().split('T')[0];
@@ -76,6 +94,26 @@ export class ShiftService {
           Query.equal('userId', userId),
           Query.greaterThanEqual('date', today),
           Query.lessThanEqual('date', futureDate),
+          Query.orderAsc('date')
+        ]
+      );
+      return response.documents as unknown as Shift[];
+    } catch (error) {
+      
+      throw error;
+    }
+  }
+
+  async getShiftsByUserFromToday(userId: string): Promise<Shift[]> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.SHIFTS,
+        [
+          Query.equal('userId', userId),
+          Query.greaterThanEqual('date', today),
           Query.orderAsc('date')
         ]
       );
@@ -174,63 +212,6 @@ export class ShiftService {
       );
     } catch (error) {
       
-      throw error;
-    }
-  }
-
-  async swapShifts(requesterShiftId: string, targetShiftId: string): Promise<{ requesterShift: Shift; targetShift: Shift }> {
-    try {
-      // Get both shifts
-      const [requesterShiftResponse, targetShiftResponse] = await Promise.all([
-        databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, requesterShiftId),
-        databases.getDocument(DATABASE_ID, COLLECTIONS.SHIFTS, targetShiftId)
-      ]);
-
-      const requesterShift = requesterShiftResponse as unknown as Shift;
-      const targetShift = targetShiftResponse as unknown as Shift;
-
-      // Swap the user assignments
-      const [updatedRequesterShift, updatedTargetShift] = await Promise.all([
-        databases.updateDocument(
-          DATABASE_ID,
-          COLLECTIONS.SHIFTS,
-          requesterShiftId,
-          {
-            userId: targetShift.userId,
-            status: 'SWAPPED'
-          }
-        ),
-        databases.updateDocument(
-          DATABASE_ID,
-          COLLECTIONS.SHIFTS,
-          targetShiftId,
-          {
-            userId: requesterShift.userId,
-            status: 'SWAPPED'
-          }
-        )
-      ]);
-
-      return {
-        requesterShift: updatedRequesterShift as unknown as Shift,
-        targetShift: updatedTargetShift as unknown as Shift
-      };
-    } catch (error) {
-      console.error('🚀 Error swapping shifts:', error);
-      throw error;
-    }
-  }
-
-  async getShiftDetails(shiftId: string): Promise<Shift> {
-    try {
-      const response = await databases.getDocument(
-        DATABASE_ID,
-        COLLECTIONS.SHIFTS,
-        shiftId
-      );
-      return response as unknown as Shift;
-    } catch (error) {
-      console.error('🚀 Error getting shift details:', error);
       throw error;
     }
   }

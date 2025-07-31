@@ -17,13 +17,13 @@ interface EmployeesOnLeaveProps {
 const getLeaveTypeColor = (leaveType: LeaveType) => {
   switch (leaveType) {
     case 'PAID':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-gradient-to-r from-blue-100 to-blue-200 text-blue-900 border-l-blue-500 dark:from-blue-900/30 dark:to-blue-800/30 dark:text-blue-100';
     case 'SICK':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-gradient-to-r from-red-100 to-red-200 text-red-900 border-l-red-500 dark:from-red-900/30 dark:to-red-800/30 dark:text-red-100';
     case 'COMP_OFF':
-      return 'bg-green-100 text-green-800 border-green-200';
+      return 'bg-gradient-to-r from-green-100 to-green-200 text-green-900 border-l-green-500 dark:from-green-900/30 dark:to-green-800/30 dark:text-green-100';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-900 border-l-gray-500 dark:from-gray-900/30 dark:to-gray-800/30 dark:text-gray-100';
   }
 };
 
@@ -146,10 +146,11 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
   const isCurrentlyLoading = isLoading || loadingLeaves;
 
   return (
-    <Card className={className}>
+    <Card className={`border-0 shadow-lg overflow-hidden bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 ${className}`}>
+      <div className="h-1 bg-gradient-to-r from-emerald-500 to-teal-600" />
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <CalendarX className="h-5 w-5 text-orange-600" />
+          <CalendarX className="h-5 w-5 text-emerald-600" />
           Employees on Leave This Week
         </CardTitle>
         <CardDescription>
@@ -201,32 +202,38 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
                       return (
                         <div 
                           key={employee.$id}
-                          className={`flex items-center space-x-3 p-3 rounded-lg border transition-all duration-200 hover:shadow-sm ${getLeaveTypeColor(employee.leaveType)}`}
+                          className={`flex items-center space-x-3 p-4 rounded-lg border-l-4 transition-all duration-200 hover:shadow-md ${getLeaveTypeColor(employee.leaveType)}`}
                         >
                           <div className="relative">
-                            <Avatar className="h-10 w-10 ring-2 ring-white shadow-sm">
-                              <AvatarFallback className="bg-orange-100 text-orange-800 font-semibold">
+                            <Avatar className="h-12 w-12 ring-2 ring-white shadow-md">
+                              <AvatarFallback className="bg-white/80 text-gray-800 font-bold text-sm">
                                 {getInitials(user.firstName, user.lastName)}
                               </AvatarFallback>
                             </Avatar>
-                            <div className="absolute -top-1 -right-1 text-xs">
+                            <div className="absolute -top-1 -right-1 text-lg">
                               {getLeaveTypeIcon(employee.leaveType)}
                             </div>
                           </div>
                           
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate">
+                            <p className="font-bold text-sm truncate">
                               {employee.userName}
                             </p>
                             <div className="flex items-center gap-2 mt-1">
                               <Badge 
-                                variant="outline" 
-                                className={`text-xs ${getLeaveTypeColor(employee.leaveType)}`}
+                                variant="secondary" 
+                                className={`text-xs font-medium border ${
+                                  employee.leaveType === 'PAID' 
+                                    ? 'bg-blue-200 text-blue-900 border-blue-300 dark:bg-blue-800/50 dark:text-blue-100 dark:border-blue-600'
+                                    : employee.leaveType === 'SICK' 
+                                    ? 'bg-red-200 text-red-900 border-red-300 dark:bg-red-800/50 dark:text-red-100 dark:border-red-600'
+                                    : 'bg-green-200 text-green-900 border-green-300 dark:bg-green-800/50 dark:text-green-100 dark:border-green-600'
+                                }`}
                               >
                                 {employee.leaveType.replace('_', ' ')}
                               </Badge>
                               {employee.startDate !== employee.endDate && (
-                                <span className="text-xs text-gray-500">
+                                <span className="text-xs font-medium opacity-75">
                                   Multi-day
                                 </span>
                               )}

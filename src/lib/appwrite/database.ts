@@ -8,6 +8,7 @@ const castDocuments = <T>(docs: unknown[]): T[] => docs as T[];
 
 // Helper function to remove read-only fields from updates
 const cleanUpdateData = <T extends Record<string, unknown>>(data: T) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { $id, $createdAt, $updatedAt, $permissions, $collectionId, $databaseId, ...cleanData } = data as T & {
     $id?: string;
     $createdAt?: string;
@@ -165,6 +166,25 @@ export const shiftService = {
     }
   },
 
+  async getShiftsByUserFromToday(userId: string) {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.SHIFTS,
+        [
+          Query.equal('userId', userId),
+          Query.greaterThanEqual('date', today),
+          Query.orderAsc('date'),
+        ]
+      );
+      return castDocuments<Shift>(response.documents);
+    } catch (error) {
+      
+      throw error;
+    }
+  },
+
   async updateShift(shiftId: string, updates: Partial<Shift>) {
     try {
       const cleanedUpdates = cleanUpdateData({
@@ -208,6 +228,33 @@ export const shiftService = {
       return castDocument<Shift>(shift);
     } catch (error) {
       
+      throw error;
+    }
+  },
+
+  async swapShifts(requesterShiftId: string, targetShiftId: string) {
+    try {
+      // Get both shifts
+      const [requesterShift, targetShift] = await Promise.all([
+        this.getShiftDetails(requesterShiftId),
+        this.getShiftDetails(targetShiftId)
+      ]);
+
+      // Swap the userId assignments
+      await Promise.all([
+        this.updateShift(requesterShiftId, {
+          userId: targetShift.userId,
+          updatedAt: new Date().toISOString()
+        }),
+        this.updateShift(targetShiftId, {
+          userId: requesterShift.userId,
+          updatedAt: new Date().toISOString()
+        })
+      ]);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error swapping shifts:', error);
       throw error;
     }
   },
@@ -320,20 +367,71 @@ export const leaveService = {
 
 // Swap request services
 export const swapService = {
-  async createSwapRequest(swapData: Omit<SwapRequest, '$id' | '$createdAt' | '$updatedAt'>) {
+  async createSwapRequest(swapData: Omit<SwapRequest, '$id' | '$createdAt' | '$updatedAt' | 'respondedAt' | 'managerComment'>) {
     try {
+      // Create a clean data object with only the fields we want to send
+      const cleanSwapData = {
+        requesterShiftId: swapData.requesterShiftId,
+        requesterUserId: swapData.requesterUserId,
+        targetShiftId: swapData.targetShiftId,
+        targetUserId: swapData.targetUserId,
+        reason: swapData.reason,
+        status: swapData.status,
+        requestedAt: swapData.requestedAt,
+        // Only include responseNotes if it exists and is not empty
+        ...(swapData.responseNotes && { responseNotes: swapData.responseNotes })
+      };
+
       const swap = await databases.createDocument(
         DATABASE_ID,
         COLLECTIONS.SWAP_REQUESTS,
         ID.unique(),
-        {
-          ...swapData,
-          requestedAt: new Date().toISOString(),
-        }
+        cleanSwapData
       );
+
+      // Create notification for target user if there's a specific target
+      if (swapData.targetUserId) {
+        try {
+          // Get shift details and user names for better notification
+          const [requesterShift, targetShift, requesterUser, targetUser] = await Promise.all([
+            shiftService.getShiftDetails(swapData.requesterShiftId),
+            shiftService.getShiftDetails(swapData.targetShiftId),
+            userService.getUserById(swapData.requesterUserId),
+            userService.getUserById(swapData.targetUserId)
+          ]);
+
+          if (requesterShift && targetShift && requesterUser && targetUser) {
+            const { notificationService } = await import('./notification-service');
+            
+            // Format dates for notification
+            const requesterDate = new Date(requesterShift.date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            });
+            const targetDate = new Date(targetShift.date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            });
+
+            await notificationService.createSwapRequestNotification(
+              swapData.targetUserId,
+              `${requesterUser.firstName} ${requesterUser.lastName}`,
+              requesterDate,
+              targetDate,
+              swap.$id
+            );
+          }
+        } catch (notificationError) {
+          // Don't fail the swap creation if notification fails
+          console.error('Error creating swap request notification:', notificationError);
+        }
+      }
+
       return castDocument<SwapRequest>(swap);
     } catch (error) {
-      
+      console.error('Error creating swap request:', error);
       throw error;
     }
   },
@@ -385,6 +483,19 @@ export const swapService = {
         swapId,
         cleanedUpdates
       );
+
+      // If the swap was approved, actually swap the shifts
+      if (updates.status === 'APPROVED') {
+        try {
+          const swapRequest = castDocument<SwapRequest>(swap);
+          await shiftService.swapShifts(swapRequest.requesterShiftId, swapRequest.targetShiftId);
+        } catch (shiftSwapError) {
+          console.error('Error swapping shifts after approval:', shiftSwapError);
+          // Note: We don't throw here to avoid breaking the approval flow
+          // The approval status is saved, but shifts might not be swapped
+        }
+      }
+      
       return castDocument<SwapRequest>(swap);
     } catch (error) {
       

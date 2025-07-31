@@ -201,16 +201,19 @@ export default function SchedulePage() {
       let endDateStr: string;
 
       if (viewMode === 'week') {
-        // For week view, get current week range
+        // For week view, get current week range (Monday to Sunday)
         const startOfWeek = new Date(currentDate);
         const day = startOfWeek.getDay();
-        startOfWeek.setDate(currentDate.getDate() - day);
+        const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+        startOfWeek.setDate(diff);
         
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         
         startDateStr = startOfWeek.toISOString().split('T')[0];
         endDateStr = endOfWeek.toISOString().split('T')[0];
+        
+        console.log(`📅 Week view debug: currentDate=${currentDate.toISOString().split('T')[0]}, startOfWeek=${startDateStr}, endOfWeek=${endDateStr}`);
       } else {
         // For month view, get extended date range
         const year = currentDate.getFullYear();
@@ -229,6 +232,9 @@ export default function SchedulePage() {
         userService.getAllUsers(), // Always fetch all users so employees can see full team schedule
         leaveService.getApprovedLeavesByDateRange(startDateStr, endDateStr)
       ]);
+
+      console.log(`📅 Schedule: ${viewMode} view fetched ${shiftsData.length} shifts for ${startDateStr} to ${endDateStr}`);
+      console.log('📋 Shifts data:', shiftsData.map(s => `${s.date} - ${s.onCallRole}`));
 
       setShifts(shiftsData);
       setAllUsers(usersData as User[]);
@@ -285,16 +291,19 @@ export default function SchedulePage() {
       let endDateStr: string;
 
       if (viewMode === 'week') {
-        // For week view, get current week range
+        // For week view, get current week range (Monday to Sunday)
         const startOfWeek = new Date(currentDate);
         const day = startOfWeek.getDay();
-        startOfWeek.setDate(currentDate.getDate() - day);
+        const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+        startOfWeek.setDate(diff);
         
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         
         startDateStr = startOfWeek.toISOString().split('T')[0];
         endDateStr = endOfWeek.toISOString().split('T')[0];
+        
+        console.log(`📅 Silent refetch debug: currentDate=${currentDate.toISOString().split('T')[0]}, startOfWeek=${startDateStr}, endOfWeek=${endDateStr}`);
       } else {
         // For month view, get extended date range
         const year = currentDate.getFullYear();
@@ -398,6 +407,7 @@ export default function SchedulePage() {
       [
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`,
         `databases.${DATABASE_ID}.collections.${COLLECTIONS.LEAVES}.documents`,
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.USERS}.documents`,
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
@@ -426,11 +436,56 @@ export default function SchedulePage() {
           event.includes(COLLECTIONS.LEAVES)
         );
         
+        // Check if this is a user event
+        const isUserEvent = events.some((event: string) => 
+          event.includes(COLLECTIONS.USERS)
+        );
+        
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
           const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
           
           try {
-            if (isLeaveEvent) {
+            if (isUserEvent) {
+              // Handle user updates (name changes, etc.)
+              if (hasCreateEvent || hasUpdateEvent) {
+                setAllUsers(prevUsers => {
+                  const filteredUsers = prevUsers.filter(u => u.$id !== payload.$id);
+                  if (payload && payload.$id) {
+                    const updatedUser: User = {
+                      $id: payload.$id,
+                      firstName: payload.firstName,
+                      lastName: payload.lastName,
+                      username: payload.username,
+                      email: payload.email,
+                      role: payload.role,
+                      manager: payload.manager,
+                      paidLeaves: payload.paidLeaves || 0,
+                      sickLeaves: payload.sickLeaves || 0,
+                      compOffs: payload.compOffs || 0,
+                      $createdAt: payload.$createdAt || new Date().toISOString(),
+                      $updatedAt: payload.$updatedAt || new Date().toISOString()
+                    };
+                    return [...filteredUsers, updatedUser];
+                  }
+                  return filteredUsers;
+                });
+                
+                toast({
+                  title: "Team Updated",
+                  description: "Team member information updated",
+                  duration: 2000,
+                  className: "border-blue-500 bg-blue-50 text-blue-900"
+                });
+              } else if (hasDeleteEvent) {
+                setAllUsers(prevUsers => prevUsers.filter(u => u.$id !== payload.$id));
+                toast({
+                  title: "Team Updated", 
+                  description: "Team member removed",
+                  duration: 2000,
+                  variant: "destructive"
+                });
+              }
+            } else if (isLeaveEvent) {
               // For leave events, refetch schedule data to update employee filtering and display
               setTimeout(() => {
                 silentRefetchScheduleData();
@@ -448,8 +503,7 @@ export default function SchedulePage() {
             } else {
               // Handle shift events
               if (hasCreateEvent || hasUpdateEvent) {
-                // For CREATE/UPDATE: Get user info and update shifts directly
-                const updatedUser = await userService.getUserById(payload.userId);
+                // For CREATE/UPDATE: Update shifts directly
 
                 setShifts(prevShifts => {
                   const filteredShifts = prevShifts.filter(s => s.$id !== payload.$id);
@@ -532,6 +586,10 @@ export default function SchedulePage() {
       }
       return newDate;
     });
+  };
+
+  const goToToday = () => {
+    setCurrentDate(new Date());
   };
 
   const assignEmployee = async (date: string, role: 'primary' | 'backup', userId: string) => {
@@ -769,6 +827,14 @@ export default function SchedulePage() {
               
               {/* View Mode Toggle and Actions - Desktop */}
               <div className="hidden md:flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToToday}
+                  className="mr-2"
+                >
+                  Today
+                </Button>
                 <div className="flex">
                   <Button
                     variant={viewMode === 'month' ? 'default' : 'outline'}
@@ -793,7 +859,7 @@ export default function SchedulePage() {
             </div>
           </CardHeader>
           
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-hidden">
             {viewMode === 'month' ? (
               <>
                 {/* Monthly Calendar Grid */}
@@ -1057,42 +1123,44 @@ export default function SchedulePage() {
             ) : (
               /* Weekly View */
               <div className="p-2 md:p-4">
-                {/* Week Header */}
-                <div className="grid grid-cols-7 gap-1 md:gap-4 mb-4">
-                  {dayNames.map((dayName, index) => {
-                    const date = new Date(currentDate);
-                    // Get the Monday of current week
-                    const monday = new Date(date.setDate(date.getDate() - date.getDay() + 1));
-                    const dayDate = new Date(monday);
-                    dayDate.setDate(monday.getDate() + index);
-                    
-                    const isToday = dayDate.toISOString().split('T')[0] === new Date().toISOString().split('T')[0];
-                    const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
-                    
-                    return (
-                      <div key={dayName} className="text-center">
-                        <div className={`font-medium text-sm md:text-base ${
-                          isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
-                          'text-slate-900 dark:text-slate-100'
-                        }`}>
-                          <span className="hidden sm:inline">{dayName}</span>
-                          <span className="sm:hidden">{dayName.slice(0, 3)}</span>
-                        </div>
-                        <div className={`text-xs md:text-sm ${
-                          isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                          'text-slate-500 dark:text-slate-400'
-                        }`}>
-                          {dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {/* Single Scrollable Container for Both Header and Grid */}
+                <div className="overflow-x-auto">
+                  <div className="min-w-[800px]">
+                    {/* Week Header */}
+                    <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4">
+                      {dayNames.map((dayName, index) => {
+                        const date = new Date(currentDate);
+                        // Get the Monday of current week
+                        const monday = new Date(date.setDate(date.getDate() - date.getDay() + 1));
+                        const dayDate = new Date(monday);
+                        dayDate.setDate(monday.getDate() + index);
+                        
+                        const isToday = dayDate.toISOString().split('T')[0] === new Date().toISOString().split('T')[0];
+                        const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
+                        
+                        return (
+                          <div key={dayName} className="text-center min-w-[100px]">
+                            <div className={`font-medium text-sm md:text-base ${
+                              isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
+                              isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
+                              'text-slate-900 dark:text-slate-100'
+                            }`}>
+                              {dayName}
+                            </div>
+                            <div className={`text-xs md:text-sm ${
+                              isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold' : 
+                              isWeekend ? 'text-orange-600 dark:text-orange-400' : 
+                              'text-slate-500 dark:text-slate-400'
+                            }`}>
+                              {dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                 
-                {/* Week Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-7 gap-2 md:gap-4">
+                    {/* Week Grid */}
+                    <div className="grid grid-cols-7 gap-2 md:gap-4">
                   {Array.from({ length: 7 }, (_, index) => {
                     const date = new Date(currentDate);
                     // Get the Monday of current week
@@ -1119,7 +1187,7 @@ export default function SchedulePage() {
                     );
                     
                     return (
-                      <div key={index} className={`${backgroundClass} rounded-lg p-3 md:p-4 min-h-[200px] md:min-h-[300px]`}>
+                      <div key={index} className={`${backgroundClass} rounded-lg p-3 md:p-4 min-h-[200px] md:min-h-[300px] min-w-[100px]`}>
                         {/* Mobile day header */}
                         <div className="md:hidden flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-slate-700">
                           <div className={`font-medium ${
@@ -1379,6 +1447,8 @@ export default function SchedulePage() {
                       </div>
                     );
                   })}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

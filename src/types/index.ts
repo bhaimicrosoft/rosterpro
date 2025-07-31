@@ -54,8 +54,8 @@ export interface SwapRequest {
   $id: string;
   requesterShiftId: string;
   requesterUserId: string;
-  targetShiftId?: string;
-  targetUserId?: string;
+  targetShiftId: string;
+  targetUserId: string;
   reason: string;
   status: SwapStatus;
   responseNotes?: string;
@@ -67,7 +67,7 @@ export interface SwapRequest {
 }
 
 // Notification types
-export type NotificationType = 'leave_request' | 'leave_response' | 'swap_request' | 'swap_response' | 'shift_assignment' | 'general';
+export type NotificationType = 'LEAVE_REQUEST' | 'LEAVE_APPROVED' | 'LEAVE_REJECTED' | 'SHIFT_ASSIGNED' | 'SHIFT_SWAPPED' | 'general';
 
 export interface Notification {
   $id: string;

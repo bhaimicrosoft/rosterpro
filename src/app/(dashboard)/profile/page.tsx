@@ -15,7 +15,7 @@ import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   
   // Profile form state
@@ -166,8 +166,8 @@ export default function ProfilePage() {
         description: "Your profile has been updated successfully.",
       });
       
-      // Refresh the page to update the auth context
-      window.location.reload();
+      // Refresh user data in context without page reload
+      await refreshUser();
       
     } catch (error) {
       console.error('Error updating profile:', error);

@@ -1,12 +1,29 @@
 import { Client, Account, Databases, Storage, Functions } from 'appwrite';
 
-// Appwrite configuration for client-side
-const client = new Client()
-  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
-  .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!);
+// Create a singleton client instance that persists across the app
+let clientInstance: Client | null = null;
 
-// Note: Client-side applications should NOT use setKey() or setDevKey()
-// The platform (localhost:3000) must be configured in Appwrite Console
+// Function to get or create the client
+const getClient = (): Client => {
+  if (!clientInstance) {
+    clientInstance = new Client();
+    
+    clientInstance
+      .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
+      .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!)
+      .setDevKey(process.env.APPWRITE_DEV_KEY!);
+    
+    console.log('Appwrite client initialized with:', {
+      endpoint: process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT,
+      project: process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID
+    });
+  }
+  
+  return clientInstance;
+};
+
+// Initialize the client
+const client = getClient();
 
 // Export Appwrite services
 export const account = new Account(client);

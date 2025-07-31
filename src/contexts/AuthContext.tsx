@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { account, databases, DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { AuthUser, AuthContextType } from '@/types';
 import { Query } from 'appwrite';
@@ -19,39 +19,102 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async (retryCount = 0) => {
     try {
+      console.log('Checking authentication... (attempt', retryCount + 1, ')');
+      
+      // Try to get current account - this should work if session cookies exist
       const session = await account.get();
+      console.log('Session found:', { 
+        id: session.$id, 
+        email: session.email, 
+        name: session.name 
+      });
+      
       if (session) {
-        const userDoc = await databases.getDocument(
+        // Try to get user document using email instead of session ID
+        // This is more reliable as the session ID might not match the user document ID
+        const userQuery = await databases.listDocuments(
           DATABASE_ID,
           COLLECTIONS.USERS,
-          session.$id
+          [Query.equal('email', session.email)]
         );
         
-        setUser({
-          $id: userDoc.$id,
-          firstName: userDoc.firstName,
-          lastName: userDoc.lastName,
-          username: userDoc.username,
-          email: userDoc.email,
-          role: userDoc.role,
-          manager: userDoc.manager,
-          paidLeaves: userDoc.paidLeaves || 0,
-          sickLeaves: userDoc.sickLeaves || 0,
-          compOffs: userDoc.compOffs || 0,
-        });
+        if (userQuery.documents.length > 0) {
+          const userDoc = userQuery.documents[0];
+          console.log('User document found:', { 
+            id: userDoc.$id, 
+            email: userDoc.email, 
+            username: userDoc.username 
+          });
+          
+          setUser({
+            $id: session.$id, // Use session ID, not document ID
+            firstName: userDoc.firstName,
+            lastName: userDoc.lastName,
+            username: userDoc.username,
+            email: userDoc.email,
+            role: userDoc.role,
+            manager: userDoc.manager,
+            paidLeaves: userDoc.paidLeaves || 0,
+            sickLeaves: userDoc.sickLeaves || 0,
+            compOffs: userDoc.compOffs || 0,
+          });
+          
+          console.log('Authentication successful');
+        } else {
+          console.log('No user document found for email:', session.email);
+          setUser(null);
+        }
+      } else {
+        console.log('No session found');
+        setUser(null);
       }
-    } catch {
+    } catch (error: unknown) {
+      console.log('Authentication check failed (attempt', retryCount + 1, '):', error);
+      const appwriteError = error as { code?: number; type?: string; message?: string };
       
+      // If it's a 401 error and we haven't retried yet, try once more after a short delay
+      if (appwriteError?.code === 401 && retryCount < 2) {
+        console.log('Retrying authentication check in 200ms...');
+        setTimeout(() => {
+          checkAuth(retryCount + 1);
+        }, 200);
+        return; // Don't set loading to false yet
+      }
+      
+      // Log error details for debugging
+      console.log('Final authentication error:', {
+        code: appwriteError?.code,
+        type: appwriteError?.type,
+        message: appwriteError?.message
+      });
+      
+      // Clear user state when authentication fails
+      setUser(null);
     } finally {
-      setIsLoading(false);
+      // Only set loading to false on final attempt
+      if (retryCount >= 2) {
+        console.log('Authentication check completed');
+        setIsLoading(false);
+      } else if (retryCount === 0) {
+        // First successful attempt or no retry needed
+        console.log('Authentication check completed');
+        setIsLoading(false);
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Small delay to ensure Appwrite client is fully initialized
+    // This is crucial for proper cookie handling
+    const initAuth = async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      checkAuth();
+    };
+    
+    initAuth();
+  }, [checkAuth]);
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
@@ -81,8 +144,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const email = userDoc.email;
 
       // Create session with email and password
-      await account.createEmailPasswordSession(email, password);
+      console.log('Creating session for:', email);
+      const session = await account.createEmailPasswordSession(email, password);
+      console.log('Session created successfully:', session);
       
+      // Set user immediately from the data we already have
+      // No need to verify since session creation was successful
       setUser({
         $id: userDoc.$id,
         firstName: userDoc.firstName,
@@ -96,6 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         compOffs: userDoc.compOffs || 0,
       });
 
+      console.log('Login successful for user:', userDoc.username);
       return true;
     } catch (error) {
       console.error('Login error:', error);
@@ -109,8 +177,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await account.deleteSession('current');
       setUser(null);
-    } catch (error) {
-      
+    } catch {
+      // Logout failed, but we'll clear the user state anyway
+      setUser(null);
     }
   };
 
@@ -118,8 +187,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await account.updatePassword(newPassword);
       return true;
-    } catch (error) {
-      
+    } catch {
+      // Password update failed
       return false;
     }
   };
