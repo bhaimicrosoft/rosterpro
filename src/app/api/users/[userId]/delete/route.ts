@@ -6,9 +6,10 @@ import serverClient from '@/lib/appwrite/server-config';
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  context: { params: Promise<{ userId: string }> }
 ) {
   try {
+    const params = await context.params;
     const { userId } = params;
 
     if (!userId) {
