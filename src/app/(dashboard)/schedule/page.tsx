@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Grid3X3, CalendarDays, RefreshCw, Loader2, Download, Upload } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Grid3X3, CalendarDays, RefreshCw, Loader2, Download, Upload, Repeat, Sparkles } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -72,6 +73,22 @@ export default function SchedulePage() {
     errors: string[];
     warnings: string[];
   } | null>(null);
+
+  // Repeat shifts state
+  const [showRepeatShiftsDialog, setShowRepeatShiftsDialog] = useState(false);
+  const [repeatShiftsData, setRepeatShiftsData] = useState({
+    sourceStartDate: '',
+    sourceEndDate: '',
+    targetStartDate: '',
+    targetEndDate: '',
+    useEndDate: true, // Toggle between end date or duration
+    repeatDuration: '1',
+    repeatUnit: 'weeks' // days, weeks, months
+  });
+  const [isRepeatingShifts, setIsRepeatingShifts] = useState(false);
+
+  // Today highlight animation state
+  const [todayHighlight, setTodayHighlight] = useState(false);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -207,7 +224,7 @@ export default function SchedulePage() {
       setExportStartDate('');
       setExportEndDate('');
       
-    } catch (error) {
+    } catch {
 
       toast({
         title: "Export Failed",
@@ -429,6 +446,110 @@ export default function SchedulePage() {
     }
   };
 
+  // Repeat shifts handler
+  const handleRepeatShifts = async () => {
+    if (!repeatShiftsData.sourceStartDate || !repeatShiftsData.sourceEndDate || !repeatShiftsData.targetStartDate) {
+      alert('Please select source start date, source end date, and target start date');
+      return;
+    }
+
+    const sourceStart = new Date(repeatShiftsData.sourceStartDate);
+    const sourceEnd = new Date(repeatShiftsData.sourceEndDate);
+    const targetStart = new Date(repeatShiftsData.targetStartDate);
+    
+    if (sourceStart >= sourceEnd) {
+      alert('Source start date must be before source end date');
+      return;
+    }
+
+    // Validate target fields based on selection
+    if (repeatShiftsData.useEndDate) {
+      if (!repeatShiftsData.targetEndDate) {
+        alert('Please select target end date');
+        return;
+      }
+      const targetEnd = new Date(repeatShiftsData.targetEndDate);
+      if (targetStart >= targetEnd) {
+        alert('Target start date must be before target end date');
+        return;
+      }
+    } else {
+      if (!repeatShiftsData.repeatDuration) {
+        alert('Please specify repeat duration');
+        return;
+      }
+      const duration = parseInt(repeatShiftsData.repeatDuration);
+      if (isNaN(duration) || duration <= 0) {
+        alert('Repeat duration must be a positive number');
+        return;
+      }
+    }
+
+    setIsRepeatingShifts(true);
+    
+    try {
+      const requestBody: {
+        sourceStartDate: string;
+        sourceEndDate: string;
+        targetStartDate: string;
+        targetEndDate?: string;
+        repeatDuration?: string;
+        repeatUnit?: string;
+      } = {
+        sourceStartDate: repeatShiftsData.sourceStartDate,
+        sourceEndDate: repeatShiftsData.sourceEndDate,
+        targetStartDate: repeatShiftsData.targetStartDate,
+      };
+
+      if (repeatShiftsData.useEndDate) {
+        requestBody.targetEndDate = repeatShiftsData.targetEndDate;
+      } else {
+        requestBody.repeatDuration = repeatShiftsData.repeatDuration;
+        requestBody.repeatUnit = repeatShiftsData.repeatUnit;
+      }
+
+      const response = await fetch('/api/schedule/repeat-shifts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to repeat shifts');
+      }
+
+      const message = `Successfully created ${result.createdShifts} shifts!${
+        result.skippedDuplicates > 0 ? ` (Skipped ${result.skippedDuplicates} duplicates)` : ''
+      }`;
+      
+      alert(message);
+      setShowRepeatShiftsDialog(false);
+      
+      // Reset form
+      setRepeatShiftsData({
+        sourceStartDate: '',
+        sourceEndDate: '',
+        targetStartDate: '',
+        targetEndDate: '',
+        useEndDate: true,
+        repeatDuration: '1',
+        repeatUnit: 'weeks'
+      });
+      
+      // Refresh the schedule
+      await fetchScheduleData();
+      
+    } catch (error) {
+      alert(`Error repeating shifts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsRepeatingShifts(false);
+    }
+  };
+
   const generateCalendar = useCallback(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -637,7 +758,7 @@ export default function SchedulePage() {
       
       setWeeklyLeaveData(leaveDataMap);
 
-    } catch (fetchError) {
+    } catch {
 
     }
   }, [user, currentDate, viewMode]);
@@ -727,7 +848,7 @@ export default function SchedulePage() {
       
       setWeeklyLeaveData(leaveDataMap);
       
-    } catch (silentError) {
+    } catch {
 
     }
   }, [user, currentDate, viewMode]);
@@ -926,7 +1047,7 @@ export default function SchedulePage() {
               });
             }
             
-          } catch (updateError) {
+          } catch {
 
             // Fallback to silent refetch only if instant update fails
             setTimeout(() => {
@@ -967,7 +1088,7 @@ export default function SchedulePage() {
             await silentRefetchScheduleData();
           }
         }
-      } catch (error) {
+      } catch {
 
       }
     };
@@ -1022,6 +1143,10 @@ export default function SchedulePage() {
 
   const goToToday = () => {
     setCurrentDate(new Date());
+    // Trigger highlight animation
+    setTodayHighlight(true);
+    // Remove highlight after animation completes
+    setTimeout(() => setTodayHighlight(false), 2000);
   };
 
   const assignEmployee = async (date: string, role: 'primary' | 'backup', userId: string) => {
@@ -1147,7 +1272,7 @@ export default function SchedulePage() {
         description: "Schedule data has been updated successfully.",
         className: "border-green-500 bg-green-50 text-green-900"
       });
-    } catch (refreshError) {
+    } catch {
 
       toast({
         variant: "destructive",
@@ -1176,7 +1301,7 @@ export default function SchedulePage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="grid grid-cols-1 gap-8 lg:flex lg:items-center lg:justify-between">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-400 dark:to-pink-400">
               Schedule Management
@@ -1186,7 +1311,7 @@ export default function SchedulePage() {
             </p>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-4">
             {/* Import/Export Buttons - Only for Managers */}
             {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
               <>
@@ -1194,7 +1319,7 @@ export default function SchedulePage() {
                   variant="outline" 
                   size="sm" 
                   onClick={() => setIsImportDialogOpen(true)}
-                  className="h-8 px-3 text-xs"
+                  className="h-8 px-3 text-xs bg-green-200"
                 >
                   <Upload className="h-3 w-3 mr-1" />
                   Import
@@ -1204,10 +1329,21 @@ export default function SchedulePage() {
                   variant="outline" 
                   size="sm" 
                   onClick={() => setIsExportDialogOpen(true)}
-                  className="h-8 px-3 text-xs"
+                  className="h-8 px-3 text-xs bg-blue-200"
                 >
                   <Download className="h-3 w-3 mr-1" />
                   Export
+                </Button>
+
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowRepeatShiftsDialog(true)}
+                  className="h-8 px-3 text-xs bg-purple-200 border-purple-300 hover:bg-purple-300"
+                >
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  <Repeat className="h-3 w-3 mr-1" />
+                  Repeat Shifts
                 </Button>
               </>
             )}
@@ -1218,7 +1354,7 @@ export default function SchedulePage() {
               size="sm" 
               onClick={refreshData}
               disabled={isRefreshing}
-              className="h-8 px-3 text-xs"
+              className="h-8 px-3 text-xs bg-zinc-500 text-white"
             >
               {isRefreshing ? (
                 <Loader2 className="h-3 w-3 mr-1 animate-spin" />
@@ -1354,7 +1490,9 @@ export default function SchedulePage() {
                     // Background classes based on day type
                     let backgroundClass = !day.isCurrentMonth ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-white dark:bg-slate-900';
                     if (isToday && day.isCurrentMonth) {
-                      backgroundClass = 'bg-gradient-to-b from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600';
+                      backgroundClass = `bg-gradient-to-b from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600 ${
+                        todayHighlight ? 'animate-pulse ring-4 ring-blue-400 ring-opacity-75 shadow-lg shadow-blue-200 dark:shadow-blue-900 transition-all duration-500' : ''
+                      }`;
                     } else if (isWeekend && day.isCurrentMonth) {
                       backgroundClass = 'bg-gradient-to-b from-orange-50 to-amber-25 dark:from-orange-900/20 dark:to-amber-900/10';
                     }
@@ -1367,7 +1505,9 @@ export default function SchedulePage() {
                         {/* Day Number */}
                         <div className={`text-xs md:text-sm font-medium mb-1 md:mb-2 ${
                           !day.isCurrentMonth ? 'text-slate-400' : 
-                          isToday ? 'text-blue-700 dark:text-blue-300 bg-blue-200 dark:bg-blue-800 rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs font-bold' :
+                          isToday ? `text-blue-700 dark:text-blue-300 bg-blue-200 dark:bg-blue-800 rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs font-bold ${
+                            todayHighlight ? 'animate-bounce bg-blue-300 dark:bg-blue-700 scale-110 transition-all duration-300' : ''
+                          }` :
                           isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' :
                           'text-slate-900 dark:text-slate-100'
                         }`}>
@@ -1640,14 +1780,18 @@ export default function SchedulePage() {
                         return (
                           <div key={dayName} className="text-center min-w-[100px]">
                             <div className={`font-medium text-sm md:text-base ${
-                              isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
+                              isToday ? `text-blue-700 dark:text-blue-300 font-semibold ${
+                                todayHighlight ? 'animate-bounce scale-110 transition-all duration-300' : ''
+                              }` : 
                               isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
                               'text-slate-900 dark:text-slate-100'
                             }`}>
                               {dayName}
                             </div>
                             <div className={`text-xs md:text-sm ${
-                              isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold' : 
+                              isToday ? `text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold ${
+                                todayHighlight ? 'animate-pulse bg-blue-300 dark:bg-blue-700 scale-110 transition-all duration-300' : ''
+                              }` : 
                               isWeekend ? 'text-orange-600 dark:text-orange-400' : 
                               'text-slate-500 dark:text-slate-400'
                             }`}>
@@ -1675,7 +1819,9 @@ export default function SchedulePage() {
                     // Background classes based on day type
                     let backgroundClass = 'bg-slate-50 dark:bg-slate-800';
                     if (isToday) {
-                      backgroundClass = 'bg-gradient-to-br from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600';
+                      backgroundClass = `bg-gradient-to-br from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600 ${
+                        todayHighlight ? 'animate-pulse ring-4 ring-blue-400 ring-opacity-75 shadow-lg shadow-blue-200 dark:shadow-blue-900 transition-all duration-500' : ''
+                      }`;
                     } else if (isWeekend) {
                       backgroundClass = 'bg-gradient-to-br from-orange-50 to-amber-25 dark:from-orange-900/20 dark:to-amber-900/10';
                     }
@@ -1690,14 +1836,18 @@ export default function SchedulePage() {
                         {/* Mobile day header */}
                         <div className="md:hidden flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-slate-700">
                           <div className={`font-medium ${
-                            isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
+                            isToday ? `text-blue-700 dark:text-blue-300 font-semibold ${
+                              todayHighlight ? 'animate-bounce scale-110 transition-all duration-300' : ''
+                            }` : 
                             isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
                             'text-slate-900 dark:text-slate-100'
                           }`}>
                             {dayNames[index]}
                           </div>
                           <div className={`text-sm ${
-                            isToday ? 'text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold' : 
+                            isToday ? `text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold ${
+                              todayHighlight ? 'animate-pulse bg-blue-300 dark:bg-blue-700 scale-110 transition-all duration-300' : ''
+                            }` : 
                             isWeekend ? 'text-orange-600 dark:text-orange-400' : 
                             'text-slate-500 dark:text-slate-400'
                           }`}>
@@ -2234,6 +2384,180 @@ export default function SchedulePage() {
           <DialogFooter>
             <Button onClick={() => setShowImportSummary(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Repeat Shifts Dialog */}
+      <Dialog open={showRepeatShiftsDialog} onOpenChange={setShowRepeatShiftsDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-500" />
+              Repeat Shifts
+              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                Special Feature
+              </span>
+            </DialogTitle>
+            <DialogDescription>
+              Copy shifts from a source date range and repeat them to a target date range with flexible scheduling.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-6 py-4">
+            {/* Source Date Range */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <Label className="text-sm font-semibold text-blue-700">Source Pattern (Copy From)</Label>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="sourceStartDate" className="text-xs">Start Date</Label>
+                  <Input
+                    id="sourceStartDate"
+                    type="date"
+                    value={repeatShiftsData.sourceStartDate}
+                    onChange={(e) => setRepeatShiftsData(prev => ({ ...prev, sourceStartDate: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="sourceEndDate" className="text-xs">End Date</Label>
+                  <Input
+                    id="sourceEndDate"
+                    type="date"
+                    value={repeatShiftsData.sourceEndDate}
+                    onChange={(e) => setRepeatShiftsData(prev => ({ ...prev, sourceEndDate: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Target Date Range */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <Label className="text-sm font-semibold text-green-700">Target Range (Apply To)</Label>
+              </div>
+              
+              <div>
+                <Label htmlFor="targetStartDate" className="text-xs">Target Start Date</Label>
+                <Input
+                  id="targetStartDate"
+                  type="date"
+                  value={repeatShiftsData.targetStartDate}
+                  onChange={(e) => setRepeatShiftsData(prev => ({ ...prev, targetStartDate: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+
+              {/* Toggle between end date and duration */}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="useEndDate"
+                    checked={repeatShiftsData.useEndDate}
+                    onChange={(e) => setRepeatShiftsData(prev => ({ ...prev, useEndDate: e.target.checked }))}
+                    className="h-4 w-4 text-purple-600 rounded border-gray-300"
+                  />
+                  <Label htmlFor="useEndDate" className="text-xs">Specify target end date</Label>
+                </div>
+
+                {repeatShiftsData.useEndDate ? (
+                  <div>
+                    <Label htmlFor="targetEndDate" className="text-xs">Target End Date</Label>
+                    <Input
+                      id="targetEndDate"
+                      type="date"
+                      value={repeatShiftsData.targetEndDate}
+                      onChange={(e) => setRepeatShiftsData(prev => ({ ...prev, targetEndDate: e.target.value }))}
+                      className="h-9"
+                    />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="repeatDuration" className="text-xs">Duration</Label>
+                      <Input
+                        id="repeatDuration"
+                        type="number"
+                        min="1"
+                        value={repeatShiftsData.repeatDuration}
+                        onChange={(e) => setRepeatShiftsData(prev => ({ ...prev, repeatDuration: e.target.value }))}
+                        className="h-9"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="repeatUnit" className="text-xs">Unit</Label>
+                      <Select
+                        value={repeatShiftsData.repeatUnit}
+                        onValueChange={(value) => setRepeatShiftsData(prev => ({ ...prev, repeatUnit: value }))}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="days">Days</SelectItem>
+                          <SelectItem value="weeks">Weeks</SelectItem>
+                          <SelectItem value="months">Months</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Repeat className="h-4 w-4 text-purple-600" />
+                <span className="text-sm font-medium text-purple-800">How it works</span>
+              </div>
+              <ul className="text-xs text-purple-700 space-y-1">
+                <li>• Copy shifts from source date range (any period)</li>
+                <li>• Apply pattern to target dates starting from target start date</li>
+                <li>• Source day pattern maps to target days cyclically</li>
+                <li>• Same PRIMARY/BACKUP users maintained</li>
+                <li>• Duplicate shifts are automatically skipped</li>
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowRepeatShiftsDialog(false)}
+              disabled={isRepeatingShifts}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRepeatShifts}
+              disabled={
+                isRepeatingShifts || 
+                !repeatShiftsData.sourceStartDate || 
+                !repeatShiftsData.sourceEndDate || 
+                !repeatShiftsData.targetStartDate ||
+                (repeatShiftsData.useEndDate && !repeatShiftsData.targetEndDate) ||
+                (!repeatShiftsData.useEndDate && (!repeatShiftsData.repeatDuration || parseInt(repeatShiftsData.repeatDuration) <= 0))
+              }
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {isRepeatingShifts ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating Shifts...
+                </>
+              ) : (
+                <>
+                  <Repeat className="mr-2 h-4 w-4" />
+                  Repeat Shifts
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

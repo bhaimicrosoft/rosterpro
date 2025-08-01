@@ -124,13 +124,11 @@ export const userManagementService = {
    */
   async deleteUser(userId: string): Promise<void> {
     try {
+      // Import database services for comprehensive deletion
+      const { userService } = await import('./database');
       
-      // Step 1: Delete from database first
-      await serverDatabases.deleteDocument(
-        DATABASE_ID,
-        COLLECTIONS.USERS,
-        userId
-      );
+      // Step 1: Comprehensive deletion of user and all related data
+      await userService.deleteUserComprehensive(userId);
 
       // Step 2: Delete from Appwrite Auth using Users API
       try {

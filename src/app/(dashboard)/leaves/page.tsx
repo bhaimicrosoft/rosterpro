@@ -582,13 +582,13 @@ export default function LeavesPage() {
               variant="outline" 
               onClick={refreshLeaveData}
               disabled={isRefreshing}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto bg-purple-400 text-purple-900"
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button variant="outline" onClick={exportLeaveData} className="w-full sm:w-auto">
-              <Download className="h-4 w-4 mr-2" />
+            <Button variant="outline" onClick={exportLeaveData} className="w-full sm:w-auto bg-green-200">
+              <Download className="h-4 w-4 mr-2 " />
               Export
             </Button>
             {user.role === 'EMPLOYEE' && (

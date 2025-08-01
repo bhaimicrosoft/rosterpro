@@ -673,7 +673,7 @@ export default function SwapsPage() {
         {/* Filters */}
         <Card className="border-0 shadow-lg">
           <CardContent className="pt-6">
-            <div className="flex gap-4 items-center">
+            <div className="flex gap-4 items-center flex-wrap justify-between lg:justify-start lg:flex-nowrap">
               <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Filters:</span>

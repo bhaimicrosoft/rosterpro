@@ -95,6 +95,54 @@ export const userService = {
     }
   },
 
+  // Comprehensive user deletion that handles all related data
+  async deleteUserComprehensive(userId: string) {
+    try {
+      const deletionResults = {
+        user: false,
+        shifts: { success: false, count: 0 },
+        leaves: { success: false, count: 0 },
+        swapRequests: { success: false, count: 0 }
+      };
+
+      // 1. Unassign user from all shifts
+      try {
+        const shiftResult = await shiftService.unassignUserFromAllShifts(userId);
+        deletionResults.shifts = { success: shiftResult.success, count: shiftResult.unassignedShifts };
+      } catch {
+        // Continue even if shift unassignment fails
+      }
+
+      // 2. Delete all leave requests for the user
+      try {
+        const leaveResult = await leaveService.deleteAllLeaveRequestsByUser(userId);
+        deletionResults.leaves = { success: leaveResult.success, count: leaveResult.deletedLeaves };
+      } catch {
+        // Continue even if leave deletion fails
+      }
+
+      // 3. Delete all swap requests for the user
+      try {
+        const swapResult = await swapService.deleteAllSwapRequestsByUser(userId);
+        deletionResults.swapRequests = { success: swapResult.success, count: swapResult.deletedSwapRequests };
+      } catch {
+        // Continue even if swap request deletion fails
+      }
+
+      // 4. Finally delete the user
+      await this.deleteUser(userId);
+      deletionResults.user = true;
+
+      return {
+        success: true,
+        message: `User deleted successfully. Unassigned ${deletionResults.shifts.count} shifts, deleted ${deletionResults.leaves.count} leave requests, and deleted ${deletionResults.swapRequests.count} swap requests.`,
+        details: deletionResults
+      };
+    } catch (error) {
+      throw error;
+    }
+  },
+
   async getEmployeesByManager(managerId: string) {
     try {
       const response = await databases.listDocuments(
@@ -272,6 +320,77 @@ export const shiftService = {
       throw error;
     }
   },
+
+  // Comprehensive function to handle user deletion from shifts
+  async unassignUserFromAllShifts(userId: string) {
+    try {
+      // Get all shifts assigned to this user
+      const userShifts = await this.getShiftsByUser(userId);
+      
+      // Update each shift to remove the user assignment
+      const unassignPromises = userShifts.map(shift => 
+        this.updateShift(shift.$id, {
+          userId: '', // Unassign the user
+          updatedAt: new Date().toISOString()
+        })
+      );
+      
+      await Promise.all(unassignPromises);
+      return { success: true, unassignedShifts: userShifts.length };
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // New feature: Repeat shifts for a date range
+  async repeatShifts(startDate: string, endDate: string, primaryUserId: string, backupUserId: string) {
+    try {
+      const shifts = [];
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      // Generate shifts for each date in the range
+      for (let currentDate = new Date(start); currentDate <= end; currentDate.setDate(currentDate.getDate() + 1)) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        
+        // Check if shift already exists for this date
+        const existingShifts = await this.getShiftsByDateRange(dateStr, dateStr);
+        
+        // Create primary shift if doesn't exist
+        const primaryExists = existingShifts.some(shift => shift.onCallRole === 'PRIMARY');
+        if (!primaryExists) {
+          const primaryShift = await this.createShift({
+            date: dateStr,
+            onCallRole: 'PRIMARY',
+            userId: primaryUserId,
+            status: 'SCHEDULED',
+          });
+          shifts.push(primaryShift);
+        }
+        
+        // Create backup shift if doesn't exist  
+        const backupExists = existingShifts.some(shift => shift.onCallRole === 'BACKUP');
+        if (!backupExists && backupUserId) {
+          const backupShift = await this.createShift({
+            date: dateStr,
+            onCallRole: 'BACKUP',
+            userId: backupUserId,
+            status: 'SCHEDULED',
+          });
+          shifts.push(backupShift);
+        }
+      }
+      
+      return { 
+        success: true, 
+        createdShifts: shifts.length,
+        shifts: shifts,
+        message: `Successfully created ${shifts.length} shifts from ${startDate} to ${endDate}`
+      };
+    } catch (error) {
+      throw error;
+    }
+  },
 };
 
 // Leave request services
@@ -423,6 +542,22 @@ export const leaveService = {
         COLLECTIONS.LEAVES,
         leaveId
       );
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Function to delete all leave requests for a user
+  async deleteAllLeaveRequestsByUser(userId: string) {
+    try {
+      const userLeaves = await this.getLeaveRequestsByUser(userId);
+      
+      const deletePromises = userLeaves.map(leave => 
+        this.deleteLeaveRequest(leave.$id)
+      );
+      
+      await Promise.all(deletePromises);
+      return { success: true, deletedLeaves: userLeaves.length };
     } catch (error) {
       throw error;
     }
@@ -621,6 +756,26 @@ export const swapService = {
       return castDocument<SwapRequest>(swap);
     } catch (error) {
       
+      throw error;
+    }
+  },
+
+  // Function to delete all swap requests for a user
+  async deleteAllSwapRequestsByUser(userId: string) {
+    try {
+      const userSwapRequests = await this.getSwapRequestsByUser(userId);
+      
+      const deletePromises = userSwapRequests.map(swapRequest => 
+        databases.deleteDocument(
+          DATABASE_ID,
+          COLLECTIONS.SWAP_REQUESTS,
+          swapRequest.$id
+        )
+      );
+      
+      await Promise.all(deletePromises);
+      return { success: true, deletedSwapRequests: userSwapRequests.length };
+    } catch (error) {
       throw error;
     }
   },
