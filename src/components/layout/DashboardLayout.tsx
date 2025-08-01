@@ -47,9 +47,11 @@ import {
   PanelLeftOpen,
   ChevronDown,
   CheckCheck,
+  AlertCircle,
 } from 'lucide-react';
 import { notificationService } from '@/lib/appwrite/database';
 import { Notification } from '@/types';
+import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -63,6 +65,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   // Notification state
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [hasNewNotifications, setHasNewNotifications] = useState(false);
   
   // Fetch notifications
   useEffect(() => {
@@ -80,8 +83,73 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     fetchNotifications();
   }, [user?.$id]);
 
+  // Real-time notification updates
+  useEffect(() => {
+    if (!user?.$id) return;
+
+    const unsubscribe = client.subscribe(
+      [
+        `databases.${DATABASE_ID}.collections.${COLLECTIONS.NOTIFICATIONS}.documents`,
+      ],
+      (response) => {
+        const eventType = response.events[0];
+        const payload = response.payload as Notification;
+
+        // Only process notifications for current user
+        if (payload.userId !== user.$id) return;
+
+        if (eventType.includes('create')) {
+          setNotifications(prev => [payload, ...prev]);
+          setHasNewNotifications(true);
+          
+          // Auto-hide animation after 3 seconds
+          setTimeout(() => setHasNewNotifications(false), 3000);
+        } else if (eventType.includes('update')) {
+          setNotifications(prev => 
+            prev.map(n => n.$id === payload.$id ? payload : n)
+          );
+        } else if (eventType.includes('delete')) {
+          setNotifications(prev => 
+            prev.filter(n => n.$id !== payload.$id)
+          );
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.$id]);
+
   // Get unread notification count
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Navigate to notification target
+  const navigateToNotification = (notification: Notification) => {
+    // Mark as read first
+    markAsRead(notification.$id);
+    setNotificationOpen(false);
+
+    // Navigate based on notification type and related ID
+    switch (notification.type) {
+      case 'LEAVE_REQUEST':
+        router.push('/home'); // Manager dashboard with leave requests
+        break;
+      case 'LEAVE_APPROVED':
+      case 'LEAVE_REJECTED':
+        router.push('/leaves'); // Employee leave page
+        break;
+      case 'SHIFT_SWAPPED':
+        router.push('/swaps'); // Swap requests page
+        break;
+      case 'SHIFT_ASSIGNED':
+        router.push('/schedule'); // Schedule page
+        break;
+      default:
+        // For general notifications, stay on current page or go to dashboard
+        router.push('/home');
+    }
+  };
 
     // Mark notification as read
   const markAsRead = async (notificationId: string) => {
@@ -121,6 +189,24 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString();
+  };
+
+  // Get notification icon based on type
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'LEAVE_REQUEST':
+        return <FileText className="h-3 w-3 text-blue-500" />;
+      case 'LEAVE_APPROVED':
+        return <CheckCheck className="h-3 w-3 text-green-500" />;
+      case 'LEAVE_REJECTED':
+        return <AlertCircle className="h-3 w-3 text-red-500" />;
+      case 'SHIFT_ASSIGNED':
+        return <Calendar className="h-3 w-3 text-indigo-500" />;
+      case 'SHIFT_SWAPPED':
+        return <RotateCcw className="h-3 w-3 text-orange-500" />;
+      default:
+        return <Bell className="h-3 w-3 text-gray-500" />;
+    }
   };
 
   const handleLogout = async () => {
@@ -271,24 +357,35 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             {/* Notifications */}
             <Popover open={notificationOpen} onOpenChange={setNotificationOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20">
-                  <Bell className="h-4 w-4" />
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className={`relative hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 transition-all duration-200 ${
+                    hasNewNotifications ? 'animate-bell-shake' : ''
+                  } ${unreadCount > 0 ? 'animate-pulse-glow' : ''}`}
+                >
+                  <Bell className={`h-4 w-4 transition-all duration-300 ${
+                    unreadCount > 0 ? 'text-blue-600 scale-110' : ''
+                  }`} />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600">
-                      {unreadCount}
+                    <Badge className={`absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 notification-badge-pulse transition-all duration-300`}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
                     </Badge>
                   )}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-80 p-0" align="end">
-                <div className="flex items-center justify-between px-4 py-3 border-b">
-                  <h3 className="font-semibold text-sm">Notifications</h3>
+                <div className="flex items-center justify-between px-4 py-3 border-b bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-blue-600" />
+                    Notifications
+                  </h3>
                   {notifications.length > 0 && (
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       onClick={markAllAsRead}
-                      className="h-6 px-2 text-xs"
+                      className="h-6 px-2 text-xs hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors"
                     >
                       <CheckCheck className="h-3 w-3 mr-1" />
                       Mark all read
@@ -297,38 +394,66 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 </div>
                 <div className="max-h-80 overflow-y-auto">
                   {notifications.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-muted-foreground">
-                      No notifications yet
+                    <div className="p-8 text-center">
+                      <div className="relative">
+                        <Bell className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-30" />
+                        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 h-16 w-16 border-2 border-dashed border-muted-foreground/20 rounded-full animate-pulse"></div>
+                      </div>
+                      <p className="text-sm text-muted-foreground">No notifications yet</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">You&apos;ll see updates here when they arrive</p>
                     </div>
                   ) : (
-                    notifications.map((notification) => (
-                      <div
-                        key={notification.$id}
-                        className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
-                          !notification.read ? 'bg-blue-50/50' : ''
-                        }`}
-                        onClick={() => markAsRead(notification.$id)}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm leading-tight">
-                              {notification.title}
-                            </p>
-                            <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                              {notification.message}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-2">
-                              {formatNotificationTime(notification.$createdAt)}
-                            </p>
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                      {notifications.map((notification, index) => (
+                        <div
+                          key={notification.$id}
+                          className={`notification-item p-4 cursor-pointer transition-all duration-200 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-indigo-50/50 dark:hover:from-blue-900/10 dark:hover:to-indigo-900/10 ${
+                            !notification.read 
+                              ? 'bg-blue-50/30 dark:bg-blue-900/10 border-l-3 border-l-blue-500 relative before:absolute before:top-0 before:left-0 before:w-full before:h-full before:bg-gradient-to-r before:from-blue-500/5 before:to-transparent before:pointer-events-none' 
+                              : ''
+                          } ${index === 0 && hasNewNotifications ? 'animate-notification-slide' : ''}`}
+                          onClick={() => navigateToNotification(notification)}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className={`font-medium text-sm leading-tight ${
+                                  !notification.read ? 'text-blue-900 dark:text-blue-100' : 'text-gray-900 dark:text-gray-100'
+                                }`}>
+                                  {notification.title}
+                                </p>
+                                {getNotificationIcon(notification.type)}
+                              </div>
+                              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                {notification.message}
+                              </p>
+                              <div className="flex items-center justify-between mt-2">
+                                <p className="text-xs text-gray-400 dark:text-gray-500">
+                                  {formatNotificationTime(notification.$createdAt)}
+                                </p>
+                                {!notification.read && (
+                                  <Badge variant="secondary" className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                    New
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {!notification.read && (
+                              <div className="h-2 w-2 bg-blue-500 rounded-full flex-shrink-0 mt-2 animate-pulse" />
+                            )}
                           </div>
-                          {!notification.read && (
-                            <div className="h-2 w-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
-                          )}
                         </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </div>
+                {notifications.length > 0 && (
+                  <div className="p-3 border-t bg-gray-50 dark:bg-gray-800/30">
+                    <p className="text-xs text-center text-muted-foreground">
+                      Click on notifications to view details
+                    </p>
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
 

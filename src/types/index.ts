@@ -85,6 +85,7 @@ export interface DashboardStats {
   totalEmployees: number;
   pendingLeaveRequests: number;
   pendingSwapRequests: number;
+  completedShifts: number;
   upcomingShifts: number;
 }
 

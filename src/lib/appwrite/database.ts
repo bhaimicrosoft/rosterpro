@@ -160,7 +160,7 @@ export const userService = {
 
 // Shift services
 export const shiftService = {
-  async createShift(shiftData: Omit<Shift, '$id' | '$createdAt' | '$updatedAt' | 'createdAt' | 'updatedAt'>) {
+  async createShift(shiftData: Omit<Shift, '$id' | '$createdAt' | '$updatedAt' | 'createdAt' | 'updatedAt'>, assignedBy?: string) {
     try {
       const shift = await databases.createDocument(
         DATABASE_ID,
@@ -172,6 +172,34 @@ export const shiftService = {
           updatedAt: new Date().toISOString(),
         }
       );
+
+      // Create notification for shift assignment if user is assigned
+      if (shiftData.userId) {
+        try {
+          const { notificationService } = await import('./notification-service');
+          const assignedUser = await userService.getUserById(shiftData.userId);
+          
+          if (assignedUser) {
+            const shiftDate = new Date(shiftData.date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            });
+
+            await notificationService.createShiftAssignmentNotification(
+              shiftData.userId,
+              shiftDate,
+              shiftData.onCallRole,
+              shift.$id,
+              assignedBy
+            );
+          }
+        } catch (notificationError) {
+          console.warn('Failed to create shift assignment notification:', notificationError);
+          // Don't fail the shift creation if notification fails
+        }
+      }
+
       return castDocument<Shift>(shift);
     } catch (error) {
       
@@ -248,8 +276,11 @@ export const shiftService = {
     }
   },
 
-  async updateShift(shiftId: string, updates: Partial<Shift>) {
+  async updateShift(shiftId: string, updates: Partial<Shift>, assignedBy?: string) {
     try {
+      // Get the original shift to compare userId changes
+      const originalShift = await this.getShiftDetails(shiftId);
+      
       const cleanedUpdates = cleanUpdateData({
         ...updates,
         updatedAt: new Date().toISOString(),
@@ -261,6 +292,34 @@ export const shiftService = {
         shiftId,
         cleanedUpdates
       );
+
+      // Create notification for shift assignment change if userId is being updated and it's different
+      if (updates.userId && originalShift && updates.userId !== originalShift.userId) {
+        try {
+          const { notificationService } = await import('./notification-service');
+          const assignedUser = await userService.getUserById(updates.userId);
+          
+          if (assignedUser) {
+            const shiftDate = new Date(originalShift.date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            });
+
+            await notificationService.createShiftAssignmentNotification(
+              updates.userId,
+              shiftDate,
+              originalShift.onCallRole,
+              shift.$id,
+              assignedBy ? `${assignedBy} (replacement)` : '(replacement)'
+            );
+          }
+        } catch (notificationError) {
+          console.warn('Failed to create shift replacement notification:', notificationError);
+          // Don't fail the shift update if notification fails
+        }
+      }
+
       return castDocument<Shift>(shift);
     } catch (error) {
       
@@ -364,7 +423,7 @@ export const shiftService = {
             onCallRole: 'PRIMARY',
             userId: primaryUserId,
             status: 'SCHEDULED',
-          });
+          }, 'System (Repeat Schedule)');
           shifts.push(primaryShift);
         }
         
@@ -376,7 +435,7 @@ export const shiftService = {
             onCallRole: 'BACKUP',
             userId: backupUserId,
             status: 'SCHEDULED',
-          });
+          }, 'System (Repeat Schedule)');
           shifts.push(backupShift);
         }
       }

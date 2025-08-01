@@ -3,6 +3,26 @@ import { serverDatabases } from '@/lib/appwrite/server-config';
 import { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { Query } from 'node-appwrite';
 
+// Import notification service for bulk notifications
+const createBulkImportNotification = async (userId: string, shiftsCount: number) => {
+  try {
+    await serverDatabases.createDocument(
+      DATABASE_ID,
+      COLLECTIONS.NOTIFICATIONS,
+      'unique()',
+      {
+        userId,
+        type: 'SHIFT_ASSIGNED',
+        title: 'Schedule Import Complete',
+        message: `${shiftsCount} new shifts have been assigned to you via schedule import`,
+        read: false
+      }
+    );
+  } catch (error) {
+    console.warn('Failed to create bulk import notification:', error);
+  }
+};
+
 export async function POST(request: NextRequest) {
   try {
     const { shifts } = await request.json();
@@ -24,9 +44,10 @@ export async function POST(request: NextRequest) {
     const currentDate = new Date();
     const createdShifts = [];
     const errors = [];
+    const userShiftCounts = new Map<string, number>(); // Track user assignments
 
     for (const shiftData of shifts) {
-      const { Primary, Backup, Date: shiftDate, Day } = shiftData;
+      const { Primary, Backup, Date: shiftDate } = shiftData;
       
       if (!shiftDate) {
         errors.push(`Skipping row with missing date`);
@@ -128,6 +149,9 @@ export async function POST(request: NextRequest) {
                 role: 'PRIMARY'
               });
 
+              // Track user assignment for notification
+              userShiftCounts.set(primaryUser.$id, (userShiftCounts.get(primaryUser.$id) || 0) + 1);
+
               // If it's a completed weekend shift, increment comp offs
               if (isPastDate && isWeekend) {
                 await serverDatabases.updateDocument(
@@ -186,6 +210,9 @@ export async function POST(request: NextRequest) {
                 role: 'BACKUP'
               });
 
+              // Track user assignment for notification
+              userShiftCounts.set(backupUser.$id, (userShiftCounts.get(backupUser.$id) || 0) + 1);
+
               // If it's a completed weekend shift, increment comp offs
               if (isPastDate && isWeekend) {
                 await serverDatabases.updateDocument(
@@ -204,6 +231,14 @@ export async function POST(request: NextRequest) {
         } else {
           errors.push(`User not found: ${Backup}`);
         }
+      }
+    }
+
+    // Create bulk notifications for affected users
+    if (userShiftCounts.size > 0) {
+      // Send notification to each user with their shift count
+      for (const [userId, count] of userShiftCounts) {
+        await createBulkImportNotification(userId, count);
       }
     }
 

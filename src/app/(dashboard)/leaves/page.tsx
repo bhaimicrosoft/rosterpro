@@ -388,6 +388,32 @@ export default function LeavesPage() {
         status: 'PENDING',
       });
 
+      // Create notification for manager when leave request is submitted
+      try {
+        if (user.manager) {
+          const { notificationService } = await import('@/lib/appwrite/notification-service');
+          await notificationService.createLeaveRequestNotification(
+            user.manager,
+            `${user.firstName} ${user.lastName}`,
+            newRequest.type,
+            new Date(newRequest.startDate).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            }),
+            new Date(newRequest.endDate).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              year: 'numeric'
+            }),
+            request.$id
+          );
+        }
+      } catch (notificationError) {
+        console.warn('Failed to create leave request notification:', notificationError);
+        // Don't fail the leave request if notification fails
+      }
+
       setLeaveRequests(prev => [request, ...prev]);
       setNewRequest({
         startDate: '',

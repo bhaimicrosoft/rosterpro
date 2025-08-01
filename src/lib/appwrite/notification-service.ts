@@ -129,5 +129,32 @@ export const notificationService = {
       read: false,
       relatedId: swapRequestId
     });
+  },
+
+  // Helper method to create shift assignment notifications
+  async createShiftAssignmentNotification(userId: string, shiftDate: string, onCallRole: string, shiftId: string, assignedBy?: string) {
+    const roleText = onCallRole === 'PRIMARY' ? 'primary on-call' : 'backup on-call';
+    const assignerText = assignedBy ? ` by ${assignedBy}` : '';
+    
+    return this.createNotification({
+      userId: userId,
+      type: 'SHIFT_ASSIGNED',
+      title: 'New Shift Assignment',
+      message: `You have been assigned as ${roleText} for ${shiftDate}${assignerText}`,
+      read: false,
+      relatedId: shiftId
+    });
+  },
+
+  // Helper method to create general system notifications
+  async createSystemNotification(userId: string, title: string, message: string, relatedId?: string) {
+    return this.createNotification({
+      userId: userId,
+      type: 'general',
+      title: title,
+      message: message,
+      read: false,
+      relatedId: relatedId
+    });
   }
 };

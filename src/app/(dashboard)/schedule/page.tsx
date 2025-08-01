@@ -30,6 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { shiftService, userService, leaveService } from '@/lib/appwrite/database';
 import { Shift, User, EmployeeOnLeave, WeeklyLeaveData, LeaveType } from '@/types';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
+import WeeklySchedule from '@/components/dashboard/WeeklySchedule';
 import * as XLSX from 'xlsx';
 
 interface CalendarDay {
@@ -899,9 +900,9 @@ export default function SchedulePage() {
     fetchScheduleData();
   }, [fetchScheduleData]);
 
-  // Real-time subscription for shifts with instant updates
+  // Real-time subscription for shifts with instant updates (only for month view)
   useEffect(() => {
-    if (!user) return;
+    if (!user || viewMode !== 'month') return;
 
     const unsubscribe = client.subscribe(
       [
@@ -1062,7 +1063,7 @@ export default function SchedulePage() {
       
       unsubscribe();
     };
-  }, [user, toast, silentRefetchScheduleData]);
+  }, [user, viewMode, toast, silentRefetchScheduleData]);
 
   // Auto-completion of past shifts (daily check)
   useEffect(() => {
@@ -1183,7 +1184,7 @@ export default function SchedulePage() {
       
       if (existingShift) {
         // Update existing shift with new user
-        await shiftService.updateShift(existingShift.$id, { userId });
+        await shiftService.updateShift(existingShift.$id, { userId }, `${user?.firstName} ${user?.lastName}`);
         toast({
           title: "Assignment Updated",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment updated successfully.`,
@@ -1196,7 +1197,7 @@ export default function SchedulePage() {
           date,
           onCallRole: dbRole,
           status: 'SCHEDULED'
-        });
+        }, `${user?.firstName} ${user?.lastName}`); // Pass assigned by info
         toast({
           title: "Assignment Created",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment created successfully.`,
@@ -1367,7 +1368,7 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        {/* Calendar Card */}
+        {/* Schedule Header with View Toggle */}
         <Card className="border-0 shadow-lg">
           <CardHeader className="border-b border-slate-200 dark:border-slate-700">
             <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
@@ -1467,7 +1468,10 @@ export default function SchedulePage() {
               </div>
             </div>
           </CardHeader>
-          
+        </Card>
+
+        {/* Calendar Card */}
+        <Card className="border-0 shadow-lg">
           <CardContent className="p-0 overflow-hidden">
             {viewMode === 'month' ? (
               <>
@@ -1761,345 +1765,12 @@ export default function SchedulePage() {
               </>
             ) : (
               /* Weekly View */
-              <div className="p-2 md:p-4">
-                {/* Single Scrollable Container for Both Header and Grid */}
-                <div className="overflow-x-auto">
-                  <div className="min-w-[800px]">
-                    {/* Week Header */}
-                    <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4">
-                      {dayNames.map((dayName, index) => {
-                        const date = new Date(currentDate);
-                        // Get the Monday of current week
-                        const monday = new Date(date.setDate(date.getDate() - date.getDay() + 1));
-                        const dayDate = new Date(monday);
-                        dayDate.setDate(monday.getDate() + index);
-                        
-                        const isToday = dayDate.toISOString().split('T')[0] === new Date().toISOString().split('T')[0];
-                        const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
-                        
-                        return (
-                          <div key={dayName} className="text-center min-w-[100px]">
-                            <div className={`font-medium text-sm md:text-base ${
-                              isToday ? `text-blue-700 dark:text-blue-300 font-semibold ${
-                                todayHighlight ? 'animate-bounce scale-110 transition-all duration-300' : ''
-                              }` : 
-                              isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
-                              'text-slate-900 dark:text-slate-100'
-                            }`}>
-                              {dayName}
-                            </div>
-                            <div className={`text-xs md:text-sm ${
-                              isToday ? `text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold ${
-                                todayHighlight ? 'animate-pulse bg-blue-300 dark:bg-blue-700 scale-110 transition-all duration-300' : ''
-                              }` : 
-                              isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                              'text-slate-500 dark:text-slate-400'
-                            }`}>
-                              {dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                
-                    {/* Week Grid */}
-                    <div className="grid grid-cols-7 gap-2 md:gap-4">
-                  {Array.from({ length: 7 }, (_, index) => {
-                    const date = new Date(currentDate);
-                    // Get the Monday of current week
-                    const monday = new Date(date.setDate(date.getDate() - date.getDay() + 1));
-                    const dayDate = new Date(monday);
-                    dayDate.setDate(monday.getDate() + index);
-                    const dateString = dayDate.toISOString().split('T')[0];
-                    
-                    // Check if it's today, weekend
-                    const isToday = dateString === new Date().toISOString().split('T')[0];
-                    const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
-                    
-                    // Background classes based on day type
-                    let backgroundClass = 'bg-slate-50 dark:bg-slate-800';
-                    if (isToday) {
-                      backgroundClass = `bg-gradient-to-br from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600 ${
-                        todayHighlight ? 'animate-pulse ring-4 ring-blue-400 ring-opacity-75 shadow-lg shadow-blue-200 dark:shadow-blue-900 transition-all duration-500' : ''
-                      }`;
-                    } else if (isWeekend) {
-                      backgroundClass = 'bg-gradient-to-br from-orange-50 to-amber-25 dark:from-orange-900/20 dark:to-amber-900/10';
-                    }
-                    
-                    // Find shifts for this day from our calendar data
-                    const dayFromCalendar = calendar.find(calDay => 
-                      calDay.date === dateString
-                    );
-                    
-                    return (
-                      <div key={index} className={`${backgroundClass} rounded-lg p-3 md:p-4 min-h-[200px] md:min-h-[300px] min-w-[100px]`}>
-                        {/* Mobile day header */}
-                        <div className="md:hidden flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-slate-700">
-                          <div className={`font-medium ${
-                            isToday ? `text-blue-700 dark:text-blue-300 font-semibold ${
-                              todayHighlight ? 'animate-bounce scale-110 transition-all duration-300' : ''
-                            }` : 
-                            isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
-                            'text-slate-900 dark:text-slate-100'
-                          }`}>
-                            {dayNames[index]}
-                          </div>
-                          <div className={`text-sm ${
-                            isToday ? `text-blue-600 dark:text-blue-400 bg-blue-200 dark:bg-blue-800 px-2 py-1 rounded-full font-semibold ${
-                              todayHighlight ? 'animate-pulse bg-blue-300 dark:bg-blue-700 scale-110 transition-all duration-300' : ''
-                            }` : 
-                            isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                            'text-slate-500 dark:text-slate-400'
-                          }`}>
-                            {dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </div>
-                        </div>
-                        
-                        <div className={`hidden md:block font-medium mb-4 ${
-                          isToday ? 'text-blue-700 dark:text-blue-300 bg-blue-200 dark:bg-blue-800 rounded-full w-8 h-8 flex items-center justify-center font-bold' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400 font-semibold' : 
-                          'text-slate-900 dark:text-slate-100'
-                        }`}>
-                          {dayDate.getDate()}
-                        </div>
-                        
-                        <div className="space-y-3">
-                          {/* Primary Assignment */}
-                          {dayFromCalendar?.shifts.primary ? (
-                            <div className="bg-pink-100 dark:bg-pink-900/30 text-pink-800 dark:text-pink-200 p-3 rounded-lg">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-medium text-sm">Primary On-Call</div>
-                                  <div className="text-sm">
-                                    {dayFromCalendar.shifts.primary.firstName} {dayFromCalendar.shifts.primary.lastName}
-                                  </div>
-                                </div>
-                                {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm" 
-                                        className="h-8 w-8 p-0 hover:bg-pink-200 dark:hover:bg-pink-800"
-                                        disabled={loadingStates[`${dateString}-primary`] || loadingStates[`${dateString}-primary-remove`]}
-                                      >
-                                        {loadingStates[`${dateString}-primary`] || loadingStates[`${dateString}-primary-remove`] ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <Plus className="h-4 w-4" />
-                                        )}
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="center" className="w-48">
-                                      <DropdownMenuLabel className="text-xs">Change Primary</DropdownMenuLabel>
-                                      {getAssignableUsersForDate(dateString).map((employee) => (
-                                        <DropdownMenuItem
-                                          key={`primary-${employee.$id}`}
-                                          onClick={() => assignEmployee(dateString, 'primary', employee.$id)}
-                                          className="text-xs"
-                                          disabled={loadingStates[`${dateString}-primary`]}
-                                        >
-                                          {employee.firstName} {employee.lastName}
-                                        </DropdownMenuItem>
-                                      ))}
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() => removeAssignment(dateString, 'primary')}
-                                        className="text-xs text-red-600"
-                                        disabled={loadingStates[`${dateString}-primary-remove`]}
-                                      >
-                                        {loadingStates[`${dateString}-primary-remove`] ? (
-                                          <>
-                                            <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                            Removing...
-                                          </>
-                                        ) : (
-                                          'Remove Primary'
-                                        )}
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button 
-                                    variant="ghost" 
-                                    className="w-full h-16 border-2 border-dashed border-pink-300 dark:border-pink-700 text-pink-600 dark:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-950"
-                                    disabled={loadingStates[`${dateString}-primary`]}
-                                  >
-                                    <div className="text-center">
-                                      {loadingStates[`${dateString}-primary`] ? (
-                                        <>
-                                          <Loader2 className="h-5 w-5 mx-auto mb-1 animate-spin" />
-                                          <div className="text-sm font-medium">Assigning...</div>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Plus className="h-5 w-5 mx-auto mb-1" />
-                                          <div className="text-sm font-medium">Assign Primary</div>
-                                        </>
-                                      )}
-                                    </div>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="center" className="w-48">
-                                  <DropdownMenuLabel className="text-xs">Assign Primary</DropdownMenuLabel>
-                                  {getAssignableUsersForDate(dateString).map((employee) => (
-                                    <DropdownMenuItem
-                                      key={`primary-${employee.$id}`}
-                                      onClick={() => assignEmployee(dateString, 'primary', employee.$id)}
-                                      className="text-xs"
-                                      disabled={loadingStates[`${dateString}-primary`]}
-                                    >
-                                      {employee.firstName} {employee.lastName}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            ) : (
-                              <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed">
-                                <div className="text-sm">No Primary Assigned</div>
-                              </div>
-                            )
-                          )}
-                          
-                          {/* Backup Assignment */}
-                          {dayFromCalendar?.shifts.backup ? (
-                            <div className="bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 p-3 rounded-lg">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-medium text-sm">Backup On-Call</div>
-                                  <div className="text-sm">
-                                    {dayFromCalendar.shifts.backup.firstName} {dayFromCalendar.shifts.backup.lastName}
-                                  </div>
-                                </div>
-                                {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm" 
-                                        className="h-8 w-8 p-0 hover:bg-purple-200 dark:hover:bg-purple-800"
-                                        disabled={loadingStates[`${dateString}-backup`] || loadingStates[`${dateString}-backup-remove`]}
-                                      >
-                                        {loadingStates[`${dateString}-backup`] || loadingStates[`${dateString}-backup-remove`] ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <Plus className="h-4 w-4" />
-                                        )}
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="center" className="w-48">
-                                      <DropdownMenuLabel className="text-xs">Change Backup</DropdownMenuLabel>
-                                      {getAssignableUsersForDate(dateString).map((employee) => (
-                                        <DropdownMenuItem
-                                          key={`backup-${employee.$id}`}
-                                          onClick={() => assignEmployee(dateString, 'backup', employee.$id)}
-                                          className="text-xs"
-                                          disabled={loadingStates[`${dateString}-backup`]}
-                                        >
-                                          {employee.firstName} {employee.lastName}
-                                        </DropdownMenuItem>
-                                      ))}
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() => removeAssignment(dateString, 'backup')}
-                                        className="text-xs text-red-600"
-                                        disabled={loadingStates[`${dateString}-backup-remove`]}
-                                      >
-                                        {loadingStates[`${dateString}-backup-remove`] ? (
-                                          <>
-                                            <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                            Removing...
-                                          </>
-                                        ) : (
-                                          'Remove Backup'
-                                        )}
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button 
-                                    variant="ghost" 
-                                    className="w-full h-16 border-2 border-dashed border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950"
-                                    disabled={loadingStates[`${dateString}-backup`]}
-                                  >
-                                    <div className="text-center">
-                                      {loadingStates[`${dateString}-backup`] ? (
-                                        <>
-                                          <Loader2 className="h-5 w-5 mx-auto mb-1 animate-spin" />
-                                          <div className="text-sm font-medium">Assigning...</div>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Plus className="h-5 w-5 mx-auto mb-1" />
-                                          <div className="text-sm font-medium">Assign Backup</div>
-                                        </>
-                                      )}
-                                    </div>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="center" className="w-48">
-                                  <DropdownMenuLabel className="text-xs">Assign Backup</DropdownMenuLabel>
-                                  {getAssignableUsersForDate(dateString).map((employee) => (
-                                    <DropdownMenuItem
-                                      key={`backup-${employee.$id}`}
-                                      onClick={() => assignEmployee(dateString, 'backup', employee.$id)}
-                                      className="text-xs"
-                                      disabled={loadingStates[`${dateString}-backup`]}
-                                    >
-                                      {employee.firstName} {employee.lastName}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            ) : (
-                              <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed">
-                                <div className="text-sm">No Backup Assigned</div>
-                              </div>
-                            )
-                          )}
-                        </div>
-                        
-                        {/* Employees on Leave - Week View */}
-                        {weeklyLeaveData[dateString] && weeklyLeaveData[dateString].length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
-                            <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">On Leave</div>
-                            <div className="space-y-1">
-                              {weeklyLeaveData[dateString].map((employeeOnLeave, index) => (
-                                <div key={index} className="text-xs flex items-center gap-1">
-                                  <div 
-                                    className={`w-2 h-2 rounded-full ${getLeaveTypeColor(employeeOnLeave.leaveType)}`}
-                                    title={employeeOnLeave.leaveType}
-                                  />
-                                  <span className="text-gray-600 dark:text-gray-400 truncate">
-                                    {employeeOnLeave.userName}
-                                  </span>
-                                  <span className="text-gray-500 dark:text-gray-500 text-xs">
-                                    {getLeaveTypeIcon(employeeOnLeave.leaveType)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <WeeklySchedule 
+                user={user} 
+                teamMembers={allUsers}
+                isScheduleManagement={true}
+                externalWeekStartDate={getWeekStartDate()}
+              />
             )}
           </CardContent>
         </Card>

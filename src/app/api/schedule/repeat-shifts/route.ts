@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
     const createdShifts = [];
     for (const shiftData of newShifts) {
       try {
-        const newShift = await shiftService.createShift(shiftData);
+        const newShift = await shiftService.createShift(shiftData, 'System (Repeat Schedule)');
         createdShifts.push(newShift);
       } catch (error) {
         console.error('Error creating shift:', error);

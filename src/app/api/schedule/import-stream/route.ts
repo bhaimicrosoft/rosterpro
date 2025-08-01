@@ -23,6 +23,26 @@ interface ProcessedShift {
   action: string;
 }
 
+// Bulk notification for shift imports
+const createBulkImportNotification = async (userId: string, shiftsCount: number) => {
+  try {
+    await serverDatabases.createDocument(
+      DATABASE_ID,
+      COLLECTIONS.NOTIFICATIONS,
+      'unique()',
+      {
+        userId,
+        type: 'SHIFT_ASSIGNED',
+        title: 'Schedule Import Complete',
+        message: `${shiftsCount} new shifts have been assigned to you via schedule import`,
+        read: false
+      }
+    );
+  } catch (error) {
+    console.warn('Failed to create bulk import notification:', error);
+  }
+};
+
 export async function POST(request: NextRequest) {
   try {
     const { shift, existingShifts } = await request.json();
@@ -55,6 +75,7 @@ export async function POST(request: NextRequest) {
     const createdShifts: ProcessedShift[] = [];
     const errors: string[] = [];
     const skipped: string[] = [];
+    const userShiftCounts = new Map<string, number>(); // Track user assignments
 
     // Handle Excel date conversion
     let date: Date;
@@ -177,12 +198,16 @@ export async function POST(request: NextRequest) {
                 createdAt: now,
                 updatedAt: now
               }
-            ).then(doc => ({
-              ...doc,
-              username: Primary,
-              role: 'PRIMARY',
-              action: 'created'
-            }));
+            ).then(doc => {
+              // Track for notification
+              userShiftCounts.set(primaryUser.$id, (userShiftCounts.get(primaryUser.$id) || 0) + 1);
+              return {
+                ...doc,
+                username: Primary,
+                role: 'PRIMARY',
+                action: 'created'
+              };
+            });
             shiftCreationPromises.push(createPromise);
           }
 
@@ -256,12 +281,16 @@ export async function POST(request: NextRequest) {
                 createdAt: now,
                 updatedAt: now
               }
-            ).then(doc => ({
-              ...doc,
-              username: Backup,
-              role: 'BACKUP',
-              action: 'created'
-            }));
+            ).then(doc => {
+              // Track for notification
+              userShiftCounts.set(backupUser.$id, (userShiftCounts.get(backupUser.$id) || 0) + 1);
+              return {
+                ...doc,
+                username: Backup,
+                role: 'BACKUP',
+                action: 'created'
+              };
+            });
             shiftCreationPromises.push(createPromise);
           }
 
@@ -296,6 +325,11 @@ export async function POST(request: NextRequest) {
       });
     } catch (error) {
       errors.push(`Batch processing error: ${error}`);
+    }
+
+    // Send notifications for new shift assignments
+    for (const [userId, count] of userShiftCounts) {
+      await createBulkImportNotification(userId, count);
     }
 
     return NextResponse.json({
