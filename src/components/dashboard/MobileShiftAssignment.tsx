@@ -53,8 +53,8 @@ export default function MobileShiftAssignment({
     try {
       await onAssignUser(userId, selectedRole);
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error assigning user:', error);
+    } catch {
+      // Error assigning user - continue silently
     }
   };
 

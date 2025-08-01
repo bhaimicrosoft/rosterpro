@@ -296,7 +296,30 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       
       // Validate date format
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        setCreatingShift(null);
         return;
+      }
+
+      // Check if user is already assigned to the opposite role for this date
+      const daySchedule = weekSchedule.find(day => day.date === date);
+      if (daySchedule) {
+        const oppositeRole = role === 'primary' ? 'backup' : 'primary';
+        const oppositeUser = oppositeRole === 'primary' ? daySchedule.primary : daySchedule.backup;
+        
+        if (oppositeUser && oppositeUser.$id === userId) {
+          const user = teamMembers.find(tm => tm.$id === userId);
+          const userName = user ? `${user.firstName} ${user.lastName}` : 'Employee';
+          const oppositeRoleName = oppositeRole.charAt(0).toUpperCase() + oppositeRole.slice(1).toLowerCase();
+          
+          toast({
+            title: "Cannot assign shift",
+            description: `${userName} is already assigned for ${oppositeRoleName} role for ${date}. Choose a different user.`,
+            variant: "destructive",
+          });
+          
+          setCreatingShift(null);
+          return;
+        }
       }
 
       // Check if user is on approved leave for this date
@@ -360,7 +383,7 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
     } catch {
       setCreatingShift(null);
     }
-  }, [onScheduleUpdate, teamMembers, toast]);
+  }, [onScheduleUpdate, teamMembers, toast, weekSchedule]);
 
   // Handle mobile remove assignment
   const handleMobileRemove = useCallback(async (role: 'primary' | 'backup', date: string) => {

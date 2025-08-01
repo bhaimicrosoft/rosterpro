@@ -50,7 +50,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error creating user:', error);
     
     // Handle specific Appwrite errors
     if (error && typeof error === 'object' && 'code' in error) {
@@ -89,8 +88,7 @@ export async function PUT(request: NextRequest) {
       data: updatedUser
     });
 
-  } catch (error) {
-    console.error('Error updating user:', error);
+  } catch {
     
     return NextResponse.json(
       { error: 'Failed to update user' },
@@ -118,8 +116,7 @@ export async function DELETE(request: NextRequest) {
       message: 'User deleted successfully'
     });
 
-  } catch (error) {
-    console.error('Error deleting user:', error);
+  } catch {
     
     return NextResponse.json(
       { error: 'Failed to delete user' },

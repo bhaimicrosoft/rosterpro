@@ -64,8 +64,8 @@ export async function POST(request: NextRequest) {
             newCompOffs: updatedUser.compOffs
           });
         }
-      } catch (error) {
-        console.error(`Failed to update shift ${shift.$id}:`, error);
+      } catch {
+        // Failed to update this shift - continue with others
       }
     }
 
@@ -76,8 +76,7 @@ export async function POST(request: NextRequest) {
       compOffUpdates
     });
 
-  } catch (error) {
-    console.error('Auto-completion error:', error);
+  } catch {
     return NextResponse.json(
       { error: 'Failed to auto-complete shifts' },
       { status: 500 }
@@ -108,8 +107,7 @@ export async function GET() {
       lastChecked: new Date().toISOString()
     });
 
-  } catch (error) {
-    console.error('Status check error:', error);
+  } catch {
     return NextResponse.json(
       { error: 'Failed to check completion status' },
       { status: 500 }

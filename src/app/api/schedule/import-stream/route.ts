@@ -306,8 +306,7 @@ export async function POST(request: NextRequest) {
       processed: true
     });
 
-  } catch (error) {
-    console.error('Streaming import error:', error);
+  } catch {
     return NextResponse.json(
       { error: 'Failed to process shift', success: false },
       { status: 500 }

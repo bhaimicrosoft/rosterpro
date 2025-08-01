@@ -23,7 +23,6 @@ export const notificationService = {
       );
       return castDocument<Notification>(notification);
     } catch (error) {
-      console.error('Error creating notification:', error);
       throw error;
     }
   },
@@ -42,7 +41,6 @@ export const notificationService = {
       );
       return castDocuments<Notification>(response.documents);
     } catch (error) {
-      console.error('Error fetching notifications:', error);
       throw error;
     }
   },
@@ -58,7 +56,6 @@ export const notificationService = {
       );
       return castDocument<Notification>(notification);
     } catch (error) {
-      console.error('Error marking notification as read:', error);
       throw error;
     }
   },
@@ -77,7 +74,6 @@ export const notificationService = {
       
       return true;
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
       throw error;
     }
   },

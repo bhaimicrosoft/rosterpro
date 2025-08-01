@@ -293,7 +293,7 @@ export default function LeavesPage() {
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async (response: any) => {
-        console.log('User subscription event received:', response);
+
 
         const events = response.events || [];
         const payload = response.payload;
@@ -304,7 +304,7 @@ export default function LeavesPage() {
         );
         
         if (hasUpdateEvent && payload && payload.$id === user.documentId) {
-          console.log('User balance updated, refreshing user data...');
+
           
           // Refresh user data to get updated balances
           refreshUser();
@@ -319,10 +319,10 @@ export default function LeavesPage() {
       }
     );
 
-    console.log('User subscription established for user:', user.documentId);
+
 
     return () => {
-      console.log('Cleaning up user subscription');
+
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -403,7 +403,7 @@ export default function LeavesPage() {
         description: "Your leave request has been submitted for approval.",
       });
     } catch (error) {
-      console.error('Error submitting leave request:', error);
+
       toast({
         title: "Error",
         description: "Failed to submit leave request. Please try again.",

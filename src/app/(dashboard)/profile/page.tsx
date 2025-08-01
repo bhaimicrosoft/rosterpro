@@ -76,7 +76,7 @@ export default function ProfilePage() {
         }
         
       } catch (error) {
-        console.error('Error loading profile data:', error);
+
         toast({
           title: "Error",
           description: "Failed to load profile data.",
@@ -170,7 +170,7 @@ export default function ProfilePage() {
       await refreshUser();
       
     } catch (error) {
-      console.error('Error updating profile:', error);
+
       toast({
         title: "Update Failed",
         description: "Failed to update profile. Please try again.",
@@ -232,7 +232,7 @@ export default function ProfilePage() {
       });
       
     } catch (error: unknown) {
-      console.error('Error updating password:', error);
+
       
       // Handle specific Appwrite errors
       let errorMessage = "Failed to update password. Please try again.";

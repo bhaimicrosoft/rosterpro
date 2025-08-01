@@ -15,7 +15,6 @@ export async function POST() {
         });
         return { success: true, userId: user.$id, name: `${user.firstName} ${user.lastName}` };
       } catch (error) {
-        console.error(`❌ Failed to update user ${user.$id}:`, error);
         return { 
           success: false, 
           userId: user.$id, 
@@ -42,7 +41,6 @@ export async function POST() {
     });
     
   } catch (error) {
-    console.error('❌ Error updating leave balances:', error);
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

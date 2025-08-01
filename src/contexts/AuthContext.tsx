@@ -128,9 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const email = userDoc.email;
 
       // Create session with email and password
-      console.log('Creating session for:', email);
-      const session = await account.createEmailPasswordSession(email, password);
-      console.log('Session created successfully:', session);
+      await account.createEmailPasswordSession(email, password);
       
       // Set user immediately from the data we already have
       // No need to verify since session creation was successful
@@ -148,10 +146,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         compOffs: userDoc.compOffs || 0,
       });
 
-      console.log('Login successful for user:', userDoc.username);
       return true;
-    } catch (error) {
-      console.error('Login error:', error);
+    } catch {
       return false;
     } finally {
       setIsLoading(false);

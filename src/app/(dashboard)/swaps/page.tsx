@@ -206,8 +206,7 @@ export default function SwapsPage() {
         const futureShifts = userShifts.filter(shift => shift.date >= tomorrowDate);
         setTargetShifts(futureShifts);
       }
-    } catch (error) {
-      console.error('Error filtering target shifts:', error);
+    } catch {
       setTargetShifts([]);
     }
   }, [user, allAvailableShifts]);
@@ -391,8 +390,7 @@ export default function SwapsPage() {
         reason: '',
       });
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error creating swap request:', error);
+    } catch {
       alert('Failed to create swap request. Please try again.');
     }
   };
@@ -422,62 +420,6 @@ export default function SwapsPage() {
     
     return shiftId; // Fallback to showing the ID if date can't be found
   }, [myShifts, targetShifts, allAvailableShifts]);
-
-  const handleApproveSwap = useCallback(async (swapId: string) => {
-    if (user?.role === 'EMPLOYEE') return;
-
-    try {
-      // Find the swap request to get requester info
-      const swapRequest = swapRequests.find(req => req.$id === swapId);
-      if (!swapRequest) return;
-
-      await swapService.updateSwapRequest(swapId, { status: 'APPROVED' });
-      // Don't manually update state - let real-time subscription handle it
-
-      // Send notification to requester
-      try {
-        await notificationService.createSwapResponseNotification(
-          swapRequest.requesterUserId,
-          'APPROVED',
-          getShiftDate(swapRequest.targetShiftId),
-          swapId,
-          `${user?.firstName || ''} ${user?.lastName || ''}`
-        );
-      } catch (notificationError) {
-        console.error('Error creating swap approval notification:', notificationError);
-      }
-    } catch {
-      
-    }
-  }, [user, swapRequests, getShiftDate]);
-
-  const handleRejectSwap = useCallback(async (swapId: string) => {
-    if (user?.role === 'EMPLOYEE') return;
-
-    try {
-      // Find the swap request to get requester info
-      const swapRequest = swapRequests.find(req => req.$id === swapId);
-      if (!swapRequest) return;
-
-      await swapService.updateSwapRequest(swapId, { status: 'REJECTED' });
-      // Don't manually update state - let real-time subscription handle it
-
-      // Send notification to requester
-      try {
-        await notificationService.createSwapResponseNotification(
-          swapRequest.requesterUserId,
-          'REJECTED',
-          getShiftDate(swapRequest.targetShiftId),
-          swapId,
-          `${user?.firstName || ''} ${user?.lastName || ''}`
-        );
-      } catch (notificationError) {
-        console.error('Error creating swap rejection notification:', notificationError);
-      }
-    } catch {
-      
-    }
-  }, [user, swapRequests, getShiftDate]);
 
   // Employee response handlers
   const handleEmployeeAcceptSwap = useCallback(async (swapId: string, notes = '') => {
@@ -518,11 +460,10 @@ export default function SwapsPage() {
           title: "Swap Request Accepted",
           description: "The requester has been notified of your acceptance.",
         });
-      } catch (notificationError) {
-        console.error('Error creating swap acceptance notification:', notificationError);
+      } catch {
+        // Notification error - continue silently
       }
-    } catch (error) {
-      console.error('Error accepting swap request:', error);
+    } catch {
       toast({
         title: "Error",
         description: "Failed to accept swap request. Please try again.",
@@ -569,11 +510,10 @@ export default function SwapsPage() {
           title: "Swap Request Rejected",
           description: "The requester has been notified of your decision.",
         });
-      } catch (notificationError) {
-        console.error('Error creating swap rejection notification:', notificationError);
+      } catch {
+        // Notification error - continue silently
       }
-    } catch (error) {
-      console.error('Error rejecting swap request:', error);
+    } catch {
       toast({
         title: "Error",
         description: "Failed to reject swap request. Please try again.",
@@ -639,7 +579,7 @@ export default function SwapsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="grid grid-cols-1 gap-8 lg:flex lg:items-center lg:gap-4 lg:justify-between">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-400 dark:to-pink-400">
               Shift Swaps
@@ -996,7 +936,7 @@ export default function SwapsPage() {
                   <p className="text-sm text-muted-foreground">No team members have requested swaps yet</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                   {filteredRequests.map((request) => (
                     <div key={request.$id} className="flex items-center justify-between p-6 border rounded-xl hover:shadow-md transition-shadow bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
                       <div className="space-y-2 flex-1">
@@ -1049,28 +989,25 @@ export default function SwapsPage() {
                           Requested on: {new Date(request.$createdAt).toLocaleDateString()}
                         </div>
                       </div>
-                      <div className="flex items-center space-x-3">
-                        {request.status === 'PENDING' && (
-                          <div className="flex space-x-2">
-                            <Button
-                              size="sm"
-                              onClick={() => handleApproveSwap(request.$id)}
-                              className="bg-green-600 hover:bg-green-700 text-white"
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleRejectSwap(request.$id)}
-                              className="bg-red-600 hover:bg-red-700"
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Reject
-                            </Button>
-                          </div>
-                        )}
+                      {/* Managers can only view swap requests - no approval/rejection actions */}
+                      <div className="flex items-center">
+                        <div className="text-sm text-muted-foreground">
+                          {request.status === 'PENDING' && (
+                            <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
+                              Awaiting target user response
+                            </span>
+                          )}
+                          {request.status === 'APPROVED' && (
+                            <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                              Approved by target user
+                            </span>
+                          )}
+                          {request.status === 'REJECTED' && (
+                            <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
+                              Rejected by target user
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}

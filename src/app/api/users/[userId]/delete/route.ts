@@ -47,9 +47,8 @@ export async function DELETE(
         // Delete from Appwrite Auth
         await users.delete(authUser.$id);
       }
-    } catch (authError) {
+    } catch {
       // Auth user might not exist or already deleted, continue with database deletion
-      console.warn('Could not delete auth user:', authError);
     }
 
     // Delete from database
@@ -64,8 +63,7 @@ export async function DELETE(
       message: 'User deleted successfully' 
     });
 
-  } catch (error) {
-    console.error('Error deleting user:', error);
+  } catch {
     return NextResponse.json(
       { error: 'Failed to delete user' },
       { status: 500 }

@@ -269,7 +269,6 @@ export const shiftService = {
 
       return { success: true };
     } catch (error) {
-      console.error('Error swapping shifts:', error);
       throw error;
     }
   },
@@ -350,7 +349,6 @@ export const leaveService = {
       
       return updatedLeave;
     } catch (error) {
-      console.error('Error updating leave request:', error);
       throw error;
     }
   },
@@ -376,25 +374,19 @@ export const leaveService = {
       const balanceField = leaveRequest.type === 'PAID' ? 'paidLeaves' : 
                           leaveRequest.type === 'SICK' ? 'sickLeaves' : 'compOffs';
 
-      console.log(`🔍 Leave balance update: User ${leaveRequest.userId}, Type: ${leaveRequest.type}, Field: ${balanceField}, Days: ${leaveDays}, ${oldStatus} → ${newStatus}`);
-
       // Handle status transitions
       if (oldStatus === 'PENDING' && newStatus === 'APPROVED') {
         // Deduct balance when approving
         const currentBalance = userData[balanceField] || 0;
         balanceUpdates[balanceField] = Math.max(0, currentBalance - leaveDays);
-        console.log(`💰 Deducting balance: ${currentBalance} - ${leaveDays} = ${balanceUpdates[balanceField]}`);
       } else if (oldStatus === 'APPROVED' && (newStatus === 'REJECTED' || newStatus === 'CANCELLED')) {
         // Restore balance when rejecting or cancelling approved leave
         const currentBalance = userData[balanceField] || 0;
         balanceUpdates[balanceField] = currentBalance + leaveDays;
-        console.log(`💰 Restoring balance: ${currentBalance} + ${leaveDays} = ${balanceUpdates[balanceField]}`);
       } else if (oldStatus === 'PENDING' && newStatus === 'CANCELLED') {
         // No balance change needed for cancelled pending requests
-        console.log(`ℹ️ No balance change needed for PENDING → CANCELLED`);
         return;
       } else {
-        console.log(`ℹ️ No balance change needed for ${oldStatus} → ${newStatus}`);
         return;
       }
 
@@ -406,10 +398,8 @@ export const leaveService = {
           leaveRequest.userId,
           balanceUpdates
         );
-        console.log(`✅ Updated ${balanceField} for user ${leaveRequest.userId}: ${oldStatus} → ${newStatus}, days: ${leaveDays}`);
       }
-    } catch (error) {
-      console.error('Error updating leave balance:', error);
+    } catch {
       // Don't throw error to prevent leave update from failing
     }
   },
@@ -434,7 +424,6 @@ export const leaveService = {
         leaveId
       );
     } catch (error) {
-      console.error('Error deleting leave request:', error);
       throw error;
     }
   },
@@ -451,7 +440,6 @@ export const leaveService = {
       );
       return castDocuments<LeaveRequest>(response.documents);
     } catch (error) {
-      console.error('Error getting pending leave requests:', error);
       throw error;
     }
   },
@@ -560,15 +548,13 @@ export const swapService = {
               swap.$id
             );
           }
-        } catch (notificationError) {
+        } catch {
           // Don't fail the swap creation if notification fails
-          console.error('Error creating swap request notification:', notificationError);
         }
       }
 
       return castDocument<SwapRequest>(swap);
     } catch (error) {
-      console.error('Error creating swap request:', error);
       throw error;
     }
   },
@@ -626,8 +612,7 @@ export const swapService = {
         try {
           const swapRequest = castDocument<SwapRequest>(swap);
           await shiftService.swapShifts(swapRequest.requesterShiftId, swapRequest.targetShiftId);
-        } catch (shiftSwapError) {
-          console.error('Error swapping shifts after approval:', shiftSwapError);
+        } catch {
           // Note: We don't throw here to avoid breaking the approval flow
           // The approval status is saved, but shifts might not be swapped
         }

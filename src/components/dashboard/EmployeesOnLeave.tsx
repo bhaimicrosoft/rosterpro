@@ -127,8 +127,8 @@ export default function EmployeesOnLeave({ teamMembers, isLoading = false, class
         });
         
         setWeeklyLeaveData(weeklyData);
-      } catch (error) {
-        console.error('Error fetching weekly leave data:', error);
+      } catch {
+        // Error fetching leave data - continue silently
       } finally {
         setLoadingLeaves(false);
       }

@@ -208,7 +208,7 @@ export default function SchedulePage() {
       setExportEndDate('');
       
     } catch (error) {
-      console.error('Export error:', error);
+
       toast({
         title: "Export Failed",
         description: "Failed to export schedule. Please try again.",
@@ -409,7 +409,7 @@ export default function SchedulePage() {
       setImportFile(null);
       
     } catch (error) {
-      console.error('Import error:', error);
+
       toast({
         title: "Import Failed",
         description: error instanceof Error ? error.message : "Failed to import schedule. Please try again.",
@@ -571,7 +571,7 @@ export default function SchedulePage() {
         startDateStr = startOfWeek.toISOString().split('T')[0];
         endDateStr = endOfWeek.toISOString().split('T')[0];
         
-        console.log(`📅 Week view debug: currentDate=${currentDate.toISOString().split('T')[0]}, startOfWeek=${startDateStr}, endOfWeek=${endDateStr}`);
+
       } else {
         // For month view, get extended date range to support imports across years
         // This covers 1 year before and 1 year after current month for performance
@@ -584,7 +584,7 @@ export default function SchedulePage() {
         startDateStr = startDate.toISOString().split('T')[0];
         endDateStr = endDate.toISOString().split('T')[0];
         
-        console.log(`📅 Month view: Fetching extended range from ${startDateStr} to ${endDateStr}`);
+
       }
 
       // Fetch data
@@ -594,8 +594,8 @@ export default function SchedulePage() {
         leaveService.getApprovedLeavesByDateRange(startDateStr, endDateStr)
       ]);
 
-      console.log(`📅 Schedule: ${viewMode} view fetched ${shiftsData.length} shifts for ${startDateStr} to ${endDateStr}`);
-      console.log('📋 Shifts data:', shiftsData.map(s => `${s.date} - ${s.onCallRole}`));
+
+
 
       setShifts(shiftsData);
       setAllUsers(usersData as User[]);
@@ -638,7 +638,7 @@ export default function SchedulePage() {
       setWeeklyLeaveData(leaveDataMap);
 
     } catch (fetchError) {
-      console.error('❌ Schedule: Error fetching schedule data:', fetchError);
+
     }
   }, [user, currentDate, viewMode]);
 
@@ -664,7 +664,7 @@ export default function SchedulePage() {
         startDateStr = startOfWeek.toISOString().split('T')[0];
         endDateStr = endOfWeek.toISOString().split('T')[0];
         
-        console.log(`📅 Silent refetch debug: currentDate=${currentDate.toISOString().split('T')[0]}, startOfWeek=${startDateStr}, endOfWeek=${endDateStr}`);
+
       } else {
         // For month view, get extended date range to support imports across years
         // This covers 1 year before and 1 year after current month for performance
@@ -677,7 +677,7 @@ export default function SchedulePage() {
         startDateStr = startDate.toISOString().split('T')[0];
         endDateStr = endDate.toISOString().split('T')[0];
         
-        console.log(`📅 Silent refetch: Fetching extended range from ${startDateStr} to ${endDateStr}`);
+
       }
 
       // Fetch data
@@ -728,7 +728,7 @@ export default function SchedulePage() {
       setWeeklyLeaveData(leaveDataMap);
       
     } catch (silentError) {
-      console.error('❌ Schedule: Error during silent refresh:', silentError);
+
     }
   }, [user, currentDate, viewMode]);
 
@@ -737,13 +737,28 @@ export default function SchedulePage() {
     return allUsers.filter(u => u.role === 'EMPLOYEE');
   }, [allUsers]);
 
-  // Get assignable users for a specific date (filtering out employees on leave)
+  // Get assignable users for a specific date (filtering out employees on leave and existing role assignments)
   const getAssignableUsersForDate = useCallback((date: string) => {
     const employeesOnLeaveForDate = weeklyLeaveData[date] || [];
     const employeeIdsOnLeave = employeesOnLeaveForDate.map(emp => emp.userId);
     
-    return assignableUsers.filter(user => !employeeIdsOnLeave.includes(user.$id));
-  }, [assignableUsers, weeklyLeaveData]);
+    // Find the shift for this date to check existing assignments
+    const dayShift = calendar.find(day => day.date === date);
+    
+    // Get both current role and opposite role user IDs to exclude both
+    const primaryUserId = dayShift?.shifts.primary?.$id;
+    const backupUserId = dayShift?.shifts.backup?.$id;
+    
+    // Create array of user IDs to exclude (current assignment + opposite role assignment)
+    const excludedUserIds: string[] = [];
+    if (primaryUserId) excludedUserIds.push(primaryUserId);
+    if (backupUserId) excludedUserIds.push(backupUserId);
+    
+    return assignableUsers.filter(user => 
+      !employeeIdsOnLeave.includes(user.$id) && 
+      !excludedUserIds.includes(user.$id)
+    );
+  }, [assignableUsers, weeklyLeaveData, calendar]);
 
   // Separate useEffect for calendar regeneration when currentDate or viewMode changes
   useEffect(() => {
@@ -912,7 +927,7 @@ export default function SchedulePage() {
             }
             
           } catch (updateError) {
-            console.error('❌ Schedule: Error processing real-time event:', updateError);
+
             // Fallback to silent refetch only if instant update fails
             setTimeout(() => {
               silentRefetchScheduleData();
@@ -953,7 +968,7 @@ export default function SchedulePage() {
           }
         }
       } catch (error) {
-        console.error('Auto-completion error:', error);
+
       }
     };
 
@@ -1015,6 +1030,22 @@ export default function SchedulePage() {
     try {
       // Set loading state
       setLoadingStates(prev => ({ ...prev, [loadingKey]: true }));
+      
+      // Check if user is already assigned to the opposite role on the same date
+      const oppositeRole = role === 'primary' ? 'BACKUP' : 'PRIMARY';
+      const oppositeRoleShift = shifts.find(s => {
+        const shiftDate = s.date.split('T')[0];
+        return shiftDate === date && s.onCallRole === oppositeRole && s.userId === userId;
+      });
+      
+      if (oppositeRoleShift) {
+        toast({
+          variant: "destructive",
+          title: "Assignment Failed",
+          description: `This employee is already assigned as ${oppositeRole.toLowerCase()} on this date.`,
+        });
+        return;
+      }
       
       // Convert to uppercase for database
       const dbRole = role.toUpperCase() as 'PRIMARY' | 'BACKUP';
@@ -1117,7 +1148,7 @@ export default function SchedulePage() {
         className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (refreshError) {
-      console.error('❌ Schedule: Error during silent refresh:', refreshError);
+
       toast({
         variant: "destructive",
         title: "Refresh Failed",

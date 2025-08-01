@@ -76,7 +76,7 @@ export default function TeamPage() {
         setTeamMembers(users);
       }
     } catch (error) {
-      console.error('Error fetching team data:', error);
+
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +98,7 @@ export default function TeamPage() {
         setTeamMembers(users);
       }
     } catch (error) {
-      console.error('Error in silent refresh:', error);
+
     }
   }, [user]);
 
@@ -197,7 +197,7 @@ export default function TeamPage() {
             });
             
           } catch (error) {
-            console.error('Error in real-time update:', error);
+
             // Fallback to silent refresh only if instant update fails
             setTimeout(() => {
               silentRefreshTeamData();
@@ -267,7 +267,7 @@ export default function TeamPage() {
         className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (error) {
-      console.error('Error creating user:', error);
+
       
       toast({
         title: "Failed to add team member",
@@ -300,7 +300,7 @@ export default function TeamPage() {
       setIsEditDialogOpen(false);
       setSelectedUser(null);
     } catch (error) {
-      console.error('Error updating user:', error);
+
       
       toast({
         title: "Failed to update user",
@@ -335,7 +335,7 @@ export default function TeamPage() {
         className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (error) {
-      console.error('Error deleting user:', error);
+
       
       toast({
         title: "Failed to delete user",
@@ -354,7 +354,7 @@ export default function TeamPage() {
       // For now, we'll just show the temp password
       alert(`Temporary password for ${email}: ${tempPassword}\nPlease share this securely with the user.`);
     } catch (error) {
-      console.error('Error resetting password:', error);
+
       alert('Failed to reset password. Please try again.');
     }
   };

@@ -44,7 +44,6 @@ export const userManagementService = {
       );
       
       authUserId = authUser.$id;
-      console.log('✅ Auth user created with prefixed ID:', authUser.$id);
 
       // Step 2: Create user profile in database with the same prefixed ID
       const dbUserData = {
@@ -65,8 +64,6 @@ export const userManagementService = {
         prefixedId, // Use same prefixed ID for database document
         dbUserData
       );
-
-      console.log('✅ Database user created:', dbUser.$id);
       
       return {
         authUser,
@@ -74,16 +71,14 @@ export const userManagementService = {
       };
 
     } catch (error) {
-      console.error('❌ Error creating user:', error);
       
       // Rollback: If database creation fails, try to delete the auth user
       if (authUserId) {
         try {
           // Note: Appwrite doesn't have a direct delete user API
           // In production, you might want to implement a cleanup mechanism
-          console.warn('⚠️ Auth user created but database user failed. Manual cleanup may be required for:', authUserId);
-        } catch (cleanupError) {
-          console.error('❌ Failed to cleanup auth user:', cleanupError);
+        } catch {
+          // Cleanup failed - continue silently
         }
       }
       
@@ -119,7 +114,6 @@ export const userManagementService = {
       
       return castDocument<User>(dbUser);
     } catch (error) {
-      console.error('❌ Error updating user:', error);
       throw error;
     }
   },
@@ -130,7 +124,6 @@ export const userManagementService = {
    */
   async deleteUser(userId: string): Promise<void> {
     try {
-      console.log('🗑️ Starting user deletion for:', userId);
       
       // Step 1: Delete from database first
       await serverDatabases.deleteDocument(
@@ -138,20 +131,16 @@ export const userManagementService = {
         COLLECTIONS.USERS,
         userId
       );
-      console.log('✅ User deleted from database:', userId);
 
       // Step 2: Delete from Appwrite Auth using Users API
       try {
         await serverUsers.delete(userId);
-        console.log('✅ User deleted from auth:', userId);
-      } catch (authError) {
-        console.error('❌ Error deleting from auth (user may not exist in auth):', authError);
+      } catch {
         // Don't throw here as database deletion was successful
         // Auth deletion failure might be acceptable if user was already deleted
       }
       
     } catch (error) {
-      console.error('❌ Error deleting user:', error);
       throw error;
     }
   },
@@ -164,9 +153,7 @@ export const userManagementService = {
     try {
       // This would require listing all auth users and ensuring they exist in database
       // Implementation depends on your specific sync requirements
-      console.log('🔄 User sync functionality - implement based on requirements');
     } catch (error) {
-      console.error('❌ Error syncing users:', error);
       throw error;
     }
   }

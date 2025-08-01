@@ -214,8 +214,7 @@ export async function POST(request: NextRequest) {
       errors: errors.length > 0 ? errors : undefined
     });
 
-  } catch (error) {
-    console.error('Import error:', error);
+  } catch {
     return NextResponse.json(
       { error: 'Failed to import shifts' },
       { status: 500 }
