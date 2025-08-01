@@ -36,7 +36,6 @@ import {
   Shield
 } from 'lucide-react';
 import { userService } from '@/lib/appwrite/database';
-import { account } from '@/lib/appwrite/config';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { useToast } from '@/hooks/use-toast';
 import { User } from '@/types';
@@ -77,7 +76,7 @@ export default function TeamPage() {
         setTeamMembers(users);
       }
     } catch (error) {
-      
+      console.error('Error fetching team data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -99,7 +98,7 @@ export default function TeamPage() {
         setTeamMembers(users);
       }
     } catch (error) {
-      
+      console.error('Error in silent refresh:', error);
     }
   }, [user]);
 
@@ -133,7 +132,7 @@ export default function TeamPage() {
         );
 
         if (hasCreateEvent || hasUpdateEvent || hasDeleteEvent) {
-          const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
+          // const eventType = hasCreateEvent ? 'CREATE' : hasUpdateEvent ? 'UPDATE' : 'DELETE';
 
           try {
             if (hasCreateEvent || hasUpdateEvent) {
@@ -146,7 +145,7 @@ export default function TeamPage() {
                 username: payload.username || payload.email || '',
                 role: payload.role,
                 manager: payload.manager || '',
-                paidLeaves: payload.paidLeaves || 25,
+                paidLeaves: payload.paidLeaves || 20,
                 sickLeaves: payload.sickLeaves || 12,
                 compOffs: payload.compOffs || 0,
                 $createdAt: payload.$createdAt || new Date().toISOString(),
@@ -198,7 +197,7 @@ export default function TeamPage() {
             });
             
           } catch (error) {
-            
+            console.error('Error in real-time update:', error);
             // Fallback to silent refresh only if instant update fails
             setTimeout(() => {
               silentRefreshTeamData();
@@ -218,26 +217,33 @@ export default function TeamPage() {
     if (!newMemberData.firstName || !newMemberData.lastName || !newMemberData.email || !newMemberData.password) return;
 
     try {
-      // Create user account with Appwrite Auth
-      await account.create(
-        'unique()',
-        newMemberData.email,
-        newMemberData.password,
-        `${newMemberData.firstName} ${newMemberData.lastName}`
-      );
-
-      // Create user profile in database
-      const newUser = await userService.createUser({
-        firstName: newMemberData.firstName,
-        lastName: newMemberData.lastName,
-        username: newMemberData.username || newMemberData.email.split('@')[0],
-        email: newMemberData.email,
-        role: newMemberData.role,
-        manager: newMemberData.manager || user?.$id,
-        paidLeaves: 24,
-        sickLeaves: 12,
-        compOffs: 0,
+      // Use the new API endpoint that handles both auth and database creation
+      const response = await fetch('/api/user-management', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: newMemberData.firstName,
+          lastName: newMemberData.lastName,
+          username: newMemberData.username || newMemberData.email.split('@')[0],
+          email: newMemberData.email,
+          password: newMemberData.password,
+          role: newMemberData.role,
+          manager: newMemberData.manager || user?.$id,
+          paidLeaves: 24,
+          sickLeaves: 12,
+          compOffs: 0,
+        }),
       });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create user');
+      }
+
+      const newUser = result.data.dbUser;
 
       // Add to team members list
       setTeamMembers(prev => [...prev, newUser]);
@@ -254,8 +260,19 @@ export default function TeamPage() {
         password: '',
       });
       setIsAddDialogOpen(false);
+
+      toast({
+        title: "Team member added",
+        description: `${newUser.firstName} ${newUser.lastName} has been added to the team.`,
+      });
     } catch (error) {
+      console.error('Error creating user:', error);
       
+      toast({
+        title: "Failed to add team member",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -282,7 +299,13 @@ export default function TeamPage() {
       setIsEditDialogOpen(false);
       setSelectedUser(null);
     } catch (error) {
+      console.error('Error updating user:', error);
       
+      toast({
+        title: "Failed to update user",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -293,8 +316,19 @@ export default function TeamPage() {
       await userService.deleteUser(userId);
       setTeamMembers(prev => prev.filter(tm => tm.$id !== userId));
       setAllUsers(prev => prev.filter(u => u.$id !== userId));
-    } catch (error) {
       
+      toast({
+        title: "User deleted",
+        description: "Team member has been removed.",
+      });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      
+      toast({
+        title: "Failed to delete user",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -307,7 +341,8 @@ export default function TeamPage() {
       // For now, we'll just show the temp password
       alert(`Temporary password for ${email}: ${tempPassword}\nPlease share this securely with the user.`);
     } catch (error) {
-      
+      console.error('Error resetting password:', error);
+      alert('Failed to reset password. Please try again.');
     }
   };
 
@@ -466,7 +501,7 @@ export default function TeamPage() {
         </div>
 
         {/* Team Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
           <Card className="border-0 shadow-lg">
             <CardContent className="p-6">
               <div className="flex items-center gap-3">
@@ -549,63 +584,66 @@ export default function TeamPage() {
                 </div>
               ) : (
                 teamMembers.map((member) => (
-                  <div key={member.$id} className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-12 w-12">
+                  <div key={member.$id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 gap-3">
+                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                      <Avatar className="h-12 w-12 flex-shrink-0">
                         <AvatarFallback className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
                           {member.firstName[0]}{member.lastName[0]}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-slate-900 dark:text-slate-100">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate">
                             {member.firstName} {member.lastName}
                           </h3>
                           <Badge className={getRoleBadgeColor(member.role)}>
                             {member.role}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
-                          <span className="flex items-center gap-1">
-                            <Mail className="h-3 w-3" />
-                            {member.email}
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-slate-600 dark:text-slate-400 mt-1">
+                          <span className="flex items-center gap-1 truncate">
+                            <Mail className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{member.email}</span>
                           </span>
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 flex-shrink-0">
                             <Calendar className="h-3 w-3" />
                             {member.paidLeaves || 0} days left
                           </span>
                         </div>
                       </div>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem 
-                          onClick={() => {
-                            setSelectedUser(member);
-                            setIsEditDialogOpen(true);
-                          }}
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleResetPassword(member.$id, member.email)}>
-                          <Key className="h-4 w-4 mr-2" />
-                          Reset Password
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          onClick={() => handleDeleteUser(member.$id)}
-                          className="text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete User
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex justify-end sm:justify-start">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0 flex-shrink-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Open menu</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem 
+                            onClick={() => {
+                              setSelectedUser(member);
+                              setIsEditDialogOpen(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleResetPassword(member.$id, member.email)}>
+                            <Key className="h-4 w-4 mr-2" />
+                            Reset Password
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => handleDeleteUser(member.$id)}
+                            className="text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete User
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 ))
               )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -20,7 +20,9 @@ import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
 import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
 import DraggableEmployeeBadge from './DraggableEmployeeBadge';
 import DroppableSlot from './DroppableSlot';
+import MobileShiftAssignment from './MobileShiftAssignment';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 
 // Utility function to ensure unique team members and prevent duplicate React keys
 const deduplicateTeamMembers = (members: User[]): User[] => {
@@ -52,6 +54,8 @@ interface WeeklyScheduleProps {
 
 export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdate, className }: WeeklyScheduleProps) {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [weekSchedule, setWeekSchedule] = useState<WeeklyScheduleDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [weekStartDate, setWeekStartDate] = useState<Date>(new Date());
@@ -115,7 +119,6 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
     const date = droppableIdParts.slice(0, -1).join('-'); // Everything before the last part is the date
     
     if (!userId || !date || !role) {
-      console.error('❌ Missing required data:', { userId, date, role });
       return;
     }
 
@@ -126,14 +129,34 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       
       // Validate date format
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        console.error('❌ Invalid date format:', date);
         return;
+      }
+
+      // Check if user is already assigned to the other role for this date
+      const daySchedule = weekSchedule.find(day => day.date === date);
+      if (daySchedule) {
+        const oppositeRole = role === 'primary' ? 'backup' : 'primary';
+        const oppositeUser = oppositeRole === 'primary' ? daySchedule.primary : daySchedule.backup;
+        
+        if (oppositeUser && oppositeUser.$id === userId) {
+          const user = teamMembers.find(tm => tm.$id === userId);
+          const userName = user ? `${user.firstName} ${user.lastName}` : 'Employee';
+          const oppositeRoleName = oppositeRole.charAt(0).toUpperCase() + oppositeRole.slice(1).toLowerCase();
+          
+          toast({
+            title: "Cannot assign shift",
+            description: `${userName} is already assigned for ${oppositeRoleName} role for ${date}. Choose a different user.`,
+            variant: "destructive",
+          });
+          
+          setCreatingShift(null);
+          return;
+        }
       }
 
       // Check if user is on approved leave for this date
       const isUserOnLeave = await leaveService.isUserOnLeave(userId, date);
       if (isUserOnLeave) {
-        console.error('❌ User is on approved leave for this date');
         
         // Find user name for better error message
         const user = teamMembers.find(tm => tm.$id === userId);
@@ -194,10 +217,9 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
         setCreatingShift(null);
       }
     } catch {
-      console.error('❌ Error in drag end handler');
       setCreatingShift(null);
     }
-  }, [onScheduleUpdate, teamMembers, toast]);
+  }, [onScheduleUpdate, teamMembers, toast, weekSchedule]);
 
   // Execute shift replacement
   const executeShiftReplacement = useCallback(async () => {
@@ -221,7 +243,6 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
       }
 
     } catch {
-      console.error('❌ Error replacing shift');
       alert('Failed to replace shift. Please try again.');
     } finally {
       setCreatingShift(null);
@@ -259,13 +280,143 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
 
       }
     } catch {
-      console.error('❌ Error deleting shift');
       alert('Failed to delete shift. Please try again.');
     } finally {
       setIsDeleteDialogOpen(false);
       setPendingOperation(null);
     }
   }, [pendingOperation, onScheduleUpdate]);
+
+  // Handle mobile assignment (used instead of drag and drop on mobile)
+  const handleMobileAssignment = useCallback(async (userId: string, role: 'primary' | 'backup', date: string) => {
+    try {
+      // Set loading state for this specific slot
+      const slotId = `${date}-${role}`;
+      setCreatingShift(slotId);
+      
+      // Validate date format
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return;
+      }
+
+      // Check if user is on approved leave for this date
+      const isUserOnLeave = await leaveService.isUserOnLeave(userId, date);
+      if (isUserOnLeave) {
+        
+        // Find user name for better error message
+        const user = teamMembers.find(tm => tm.$id === userId);
+        const userName = user ? `${user.firstName} ${user.lastName}` : 'Employee';
+        
+        toast({
+          title: "Cannot assign shift",
+          description: `${userName} is on approved leave for ${date}. Please check their leave schedule.`,
+          variant: "destructive",
+        });
+        
+        setCreatingShift(null);
+        return;
+      }
+
+      // Create proper date strings for querying (add time part for consistency)
+      const startOfDay = `${date}T00:00:00.000Z`;
+      const endOfDay = `${date}T23:59:59.999Z`;
+
+      // Check if there's already a shift for this date and role
+      const existingShifts = await shiftService.getShiftsByDateRange(startOfDay, endOfDay);
+      const existingShift = existingShifts.find(s => 
+        s.date.split('T')[0] === date && s.onCallRole === role.toUpperCase()
+      );
+
+      if (existingShift) {
+        // Set up pending replace operation and show dialog
+        setPendingOperation({
+          type: 'replace',
+          userId,
+          date,
+          role,
+          existingShiftId: existingShift.$id
+        });
+        setIsReplaceDialogOpen(true);
+        setCreatingShift(null); // Clear loading state
+        return;
+      } else {
+        // Create new shift directly
+        const shiftDate = `${date}T07:30:00.000Z`;
+
+        await shiftService.createShift({
+          userId,
+          date: shiftDate,
+          onCallRole: role.toUpperCase() as 'PRIMARY' | 'BACKUP',
+          status: 'SCHEDULED',
+        });
+
+        // Trigger callback to refresh data
+        if (onScheduleUpdate) {
+          onScheduleUpdate();
+        }
+
+        setCreatingShift(null);
+      }
+    } catch {
+      setCreatingShift(null);
+    }
+  }, [onScheduleUpdate, teamMembers, toast]);
+
+  // Handle mobile remove assignment
+  const handleMobileRemove = useCallback(async (role: 'primary' | 'backup', date: string) => {
+    try {
+      // Set loading state for this specific slot
+      const slotId = `${date}-${role}`;
+      setCreatingShift(slotId);
+      
+      // Validate date format
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        setCreatingShift(null);
+        return;
+      }
+
+      // Create proper date strings for querying
+      const startOfDay = `${date}T00:00:00.000Z`;
+      const endOfDay = `${date}T23:59:59.999Z`;
+
+      // Find the existing shift for this date and role
+      const existingShifts = await shiftService.getShiftsByDateRange(startOfDay, endOfDay);
+      const existingShift = existingShifts.find(s => 
+        s.date.split('T')[0] === date && s.onCallRole === role.toUpperCase()
+      );
+
+      if (existingShift) {
+        // Delete the existing shift
+        await shiftService.deleteShift(existingShift.$id);
+        
+        // Show success message
+        toast({
+          title: "Assignment Removed",
+          description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment removed for ${date}`,
+        });
+
+        // Trigger callback to refresh data
+        if (onScheduleUpdate) {
+          onScheduleUpdate();
+        }
+      } else {
+        toast({
+          title: "No Assignment Found",
+          description: `No ${role} assignment found for ${date}`,
+          variant: "destructive",
+        });
+      }
+
+      setCreatingShift(null);
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to remove assignment. Please try again.",
+        variant: "destructive",
+      });
+      setCreatingShift(null);
+    }
+  }, [onScheduleUpdate, toast]);
 
   const getWeekDates = useCallback(() => {
     const today = new Date();
@@ -436,6 +587,29 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
     fetchWeeklyData();
   }, [fetchWeeklyData]);
 
+  // Auto-scroll to today in mobile view
+  useEffect(() => {
+    if (!isMobile || loading || weekSchedule.length === 0) return;
+
+    const todayDate = new Date().toISOString().split('T')[0];
+    const todayIndex = weekSchedule.findIndex(day => day.date === todayDate);
+    
+    if (todayIndex !== -1 && scrollContainerRef.current) {
+      // Calculate scroll position to center "today"
+      const container = scrollContainerRef.current;
+      const cardWidth = 160; // w-40 = 10rem = 160px
+      const gap = 12; // space-x-3 = 0.75rem = 12px
+      const containerWidth = container.clientWidth;
+      const scrollPosition = todayIndex * (cardWidth + gap) - (containerWidth / 2) + (cardWidth / 2);
+      
+      // Smooth scroll to today
+      container.scrollTo({
+        left: Math.max(0, scrollPosition),
+        behavior: 'smooth'
+      });
+    }
+  }, [isMobile, loading, weekSchedule]);
+
   // Real-time subscription for shifts with instant updates
   useEffect(() => {
     if (!user) return;
@@ -558,8 +732,8 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div className="space-y-4">
-        {/* Team Members Panel - Only show for managers */}
-        {user.role === 'MANAGER' && teamMembers.length > 0 && (
+        {/* Team Members Panel - Only show for managers and on desktop */}
+        {user.role === 'MANAGER' && teamMembers.length > 0 && !isMobile && (
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium">Team Members</CardTitle>
@@ -598,147 +772,103 @@ export default function WeeklySchedule({ user, teamMembers = [], onScheduleUpdat
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {/* Mobile: Horizontal scrollable view */}
-            <div className="md:hidden">
-              <div className="flex overflow-x-auto pb-4 px-4 space-x-3 scrollbar-thin horizontal-scroll">
-                {weekSchedule.map((day, index) => {
-                  const isToday = day.date === new Date().toISOString().split('T')[0];
-                  const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
-                  
-                  // Background classes based on day type
-                  let backgroundClass = 'hover:bg-muted/50';
-                  if (isToday) {
-                    backgroundClass = 'bg-gradient-to-b from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600';
-                  } else if (isWeekend) {
-                    backgroundClass = 'bg-gradient-to-b from-orange-50 to-amber-25 dark:from-orange-900/20 dark:to-amber-900/10 hover:bg-orange-100/50 dark:hover:bg-orange-900/30';
-                  }
-                  
-                  return (
-                    <div 
-                      key={day.date} 
-                      className={`flex-shrink-0 w-32 p-3 space-y-3 min-h-[140px] rounded-lg border ${backgroundClass}`}
-                    >
-                      {/* Day Header */}
-                      <div className="text-center">
-                        <div className={`text-xs font-medium ${
-                          isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                          'text-muted-foreground'
-                        }`}>
-                          {day.dayName}
-                        </div>
-                        <div className={`text-sm font-semibold ${
-                          isToday ? 'text-blue-700 dark:text-blue-300 bg-blue-200 dark:bg-blue-800 rounded-full w-6 h-6 flex items-center justify-center mx-auto' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                          'text-foreground'
-                        }`}>
-                          {day.dayNumber}
-                        </div>
-                      </div>
-
-                      {/* Primary Assignment */}
-                      <div className="space-y-2">
-                        <Badge variant="default" className="text-xs px-2 py-0.5 h-5 w-full justify-center bg-blue-600 hover:bg-blue-700">
-                          Primary
-                        </Badge>
-                        <DroppableSlot
-                          droppableId={`${day.date}-primary`}
-                          assignedUser={day.primary as User}
-                          slotType="primary"
-                          className="min-h-[60px]"
-                          isCreating={creatingShift === `${day.date}-primary`}
-                        />
-                      </div>
-
-                      {/* Backup Assignment */}
-                      <div className="space-y-2">
-                        <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 w-full justify-center border-green-400 text-green-700 bg-green-50">
-                          Backup
-                        </Badge>
-                        <DroppableSlot
-                          droppableId={`${day.date}-backup`}
-                          assignedUser={day.backup as User}
-                          slotType="backup"
-                          className="min-h-[60px]"
-                          isCreating={creatingShift === `${day.date}-backup`}
-                        />
-                      </div>
+            {/* Mobile: Touch-friendly assignment view */}
+            {isMobile ? (
+              <div className="md:hidden">
+                <div 
+                  ref={scrollContainerRef}
+                  className="flex overflow-x-auto pb-4 px-4 space-x-3 scrollbar-thin horizontal-scroll"
+                >
+                  {weekSchedule.map((day) => (
+                    <div key={day.date} className="flex-shrink-0 w-40">
+                      <MobileShiftAssignment
+                        date={day.date}
+                        dayName={day.dayName}
+                        dayNumber={day.dayNumber}
+                        primaryUser={day.primary as User}
+                        backupUser={day.backup as User}
+                        teamMembers={deduplicateTeamMembers(teamMembers)}
+                        onAssignUser={(userId, role) => handleMobileAssignment(userId, role, day.date)}
+                        onRemoveUser={(role) => handleMobileRemove(role, day.date)}
+                        isCreating={creatingShift === `${day.date}-primary` || creatingShift === `${day.date}-backup`}
+                      />
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              /* Desktop: Original drag and drop view */
+              /* Desktop: Grid view */
+              <div className="hidden md:block">
+                  <div className="grid grid-cols-7 divide-x divide-border">
+                    {weekSchedule.map((day, index) => {
+                      const isToday = day.date === new Date().toISOString().split('T')[0];
+                      const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
+                      
+                      // Background classes based on day type
+                      let backgroundClass = 'hover:bg-muted/50';
+                      if (isToday) {
+                        backgroundClass = 'bg-gradient-to-b from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600';
+                      } else if (isWeekend) {
+                        backgroundClass = 'bg-gradient-to-b from-orange-50 to-amber-25 dark:from-orange-900/20 dark:to-amber-900/10 hover:bg-orange-100/50 dark:hover:bg-orange-900/30';
+                      }
+                      
+                      return (
+                        <div 
+                          key={day.date} 
+                          className={`p-3 space-y-3 min-h-[120px] ${backgroundClass}`}
+                        >
+                          {/* Day Header */}
+                          <div className="text-center">
+                            <div className={`text-xs font-medium ${
+                              isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
+                              isWeekend ? 'text-orange-600 dark:text-orange-400' : 
+                              'text-muted-foreground'
+                            }`}>
+                              {day.dayName}
+                            </div>
+                            <div className={`text-sm font-semibold ${
+                              isToday ? 'text-blue-700 dark:text-blue-300 bg-blue-200 dark:bg-blue-800 rounded-full w-6 h-6 flex items-center justify-center mx-auto' : 
+                              isWeekend ? 'text-orange-600 dark:text-orange-400' : 
+                              'text-foreground'
+                            }`}>
+                              {day.dayNumber}
+                            </div>
+                          </div>
 
-            {/* Desktop: Grid view */}
-            <div className="hidden md:block">
-              <div className="grid grid-cols-7 divide-x divide-border">
-                {weekSchedule.map((day, index) => {
-                  const isToday = day.date === new Date().toISOString().split('T')[0];
-                  const isWeekend = index >= 5; // Saturday (5) and Sunday (6)
-                  
-                  // Background classes based on day type
-                  let backgroundClass = 'hover:bg-muted/50';
-                  if (isToday) {
-                    backgroundClass = 'bg-gradient-to-b from-blue-100 to-blue-50 dark:from-blue-900/40 dark:to-blue-800/20 border-2 border-blue-300 dark:border-blue-600';
-                  } else if (isWeekend) {
-                    backgroundClass = 'bg-gradient-to-b from-orange-50 to-amber-25 dark:from-orange-900/20 dark:to-amber-900/10 hover:bg-orange-100/50 dark:hover:bg-orange-900/30';
-                  }
-                  
-                  return (
-                    <div 
-                      key={day.date} 
-                      className={`p-3 space-y-3 min-h-[120px] ${backgroundClass}`}
-                    >
-                      {/* Day Header */}
-                      <div className="text-center">
-                        <div className={`text-xs font-medium ${
-                          isToday ? 'text-blue-700 dark:text-blue-300 font-semibold' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                          'text-muted-foreground'
-                        }`}>
-                          {day.dayName}
+                          {/* Primary Assignment */}
+                          <div className="space-y-2">
+                            <Badge variant="default" className="text-xs px-2 py-0.5 h-5 bg-blue-600 hover:bg-blue-700">
+                              Primary
+                            </Badge>
+                            <DroppableSlot
+                              droppableId={`${day.date}-primary`}
+                              assignedUser={day.primary as User}
+                              slotType="primary"
+                              className="min-h-[50px]"
+                              isCreating={creatingShift === `${day.date}-primary`}
+                            />
+                          </div>
+
+                          {/* Backup Assignment */}
+                          <div className="space-y-2">
+                            <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 border-green-400 text-green-700 bg-green-50">
+                              Backup
+                            </Badge>
+                            <DroppableSlot
+                              droppableId={`${day.date}-backup`}
+                              assignedUser={day.backup as User}
+                              slotType="backup"
+                              className="min-h-[50px]"
+                              isCreating={creatingShift === `${day.date}-backup`}
+                            />
+                          </div>
                         </div>
-                        <div className={`text-sm font-semibold ${
-                          isToday ? 'text-blue-700 dark:text-blue-300 bg-blue-200 dark:bg-blue-800 rounded-full w-6 h-6 flex items-center justify-center mx-auto' : 
-                          isWeekend ? 'text-orange-600 dark:text-orange-400' : 
-                          'text-foreground'
-                        }`}>
-                          {day.dayNumber}
-                        </div>
-                      </div>
-
-                      {/* Primary Assignment */}
-                      <div className="space-y-2">
-                        <Badge variant="default" className="text-xs px-2 py-0.5 h-5 bg-blue-600 hover:bg-blue-700">
-                          Primary
-                        </Badge>
-                        <DroppableSlot
-                          droppableId={`${day.date}-primary`}
-                          assignedUser={day.primary as User}
-                          slotType="primary"
-                          className="min-h-[50px]"
-                          isCreating={creatingShift === `${day.date}-primary`}
-                        />
-                      </div>
-
-                      {/* Backup Assignment */}
-                      <div className="space-y-2">
-                        <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 border-green-400 text-green-700 bg-green-50">
-                          Backup
-                        </Badge>
-                        <DroppableSlot
-                          droppableId={`${day.date}-backup`}
-                          assignedUser={day.backup as User}
-                          slotType="backup"
-                          className="min-h-[50px]"
-                          isCreating={creatingShift === `${day.date}-backup`}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                      );
+                    })}
+                  </div>
+                </div>
+            )}
           </CardContent>
         </Card>
       </div>

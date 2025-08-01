@@ -20,16 +20,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   const checkAuth = useCallback(async (retryCount = 0) => {
-    try {
-      console.log('Checking authentication... (attempt', retryCount + 1, ')');
+    try {   
       
       // Try to get current account - this should work if session cookies exist
-      const session = await account.get();
-      console.log('Session found:', { 
-        id: session.$id, 
-        email: session.email, 
-        name: session.name 
-      });
+      const session = await account.get();     
       
       if (session) {
         // Try to get user document using email instead of session ID
@@ -42,11 +36,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         if (userQuery.documents.length > 0) {
           const userDoc = userQuery.documents[0];
-          console.log('User document found:', { 
-            id: userDoc.$id, 
-            email: userDoc.email, 
-            username: userDoc.username 
-          });
           
           setUser({
             $id: session.$id, // Use session ID, not document ID
@@ -62,45 +51,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             compOffs: userDoc.compOffs || 0,
           });
           
-          console.log('Authentication successful');
+         
         } else {
-          console.log('No user document found for email:', session.email);
+         
           setUser(null);
         }
       } else {
-        console.log('No session found');
+      
         setUser(null);
       }
     } catch (error: unknown) {
-      console.log('Authentication check failed (attempt', retryCount + 1, '):', error);
+      
       const appwriteError = error as { code?: number; type?: string; message?: string };
       
       // If it's a 401 error and we haven't retried yet, try once more after a short delay
       if (appwriteError?.code === 401 && retryCount < 2) {
-        console.log('Retrying authentication check in 200ms...');
+       
         setTimeout(() => {
           checkAuth(retryCount + 1);
         }, 200);
         return; // Don't set loading to false yet
       }
       
-      // Log error details for debugging
-      console.log('Final authentication error:', {
-        code: appwriteError?.code,
-        type: appwriteError?.type,
-        message: appwriteError?.message
-      });
       
       // Clear user state when authentication fails
       setUser(null);
     } finally {
       // Only set loading to false on final attempt
       if (retryCount >= 2) {
-        console.log('Authentication check completed');
+       
         setIsLoading(false);
       } else if (retryCount === 0) {
         // First successful attempt or no retry needed
-        console.log('Authentication check completed');
+    
         setIsLoading(false);
       }
     }

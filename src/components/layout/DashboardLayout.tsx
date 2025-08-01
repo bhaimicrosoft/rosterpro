@@ -368,8 +368,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
 
       <div className="flex">
         {/* Desktop Sidebar */}
-        <aside className={`hidden md:flex ${sidebarCollapsed ? 'w-16' : 'w-64'} bg-white/60 backdrop-blur-md dark:bg-slate-800/60 border-r border-slate-200/60 dark:border-slate-700/60 min-h-[calc(100vh-65px)] transition-all duration-300 ease-in-out`}>
-          <div className={`${sidebarCollapsed ? 'p-2' : 'p-4'} w-full transition-all duration-300`}>
+        <aside className={`hidden md:flex ${sidebarCollapsed ? 'w-16' : 'w-64'} bg-white/60 backdrop-blur-md dark:bg-slate-800/60 border-r border-slate-200/60 dark:border-slate-700/60 h-[calc(100vh-65px)] sticky top-[65px] transition-all duration-300 ease-in-out`}>
+          <div className={`${sidebarCollapsed ? 'p-2' : 'p-4'} w-full transition-all duration-300 overflow-y-auto`}>
             <NavigationMenu collapsed={sidebarCollapsed} />
           </div>
         </aside>

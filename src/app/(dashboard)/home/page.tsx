@@ -50,8 +50,12 @@ import EmployeesOnLeave from '@/components/dashboard/EmployeesOnLeave';
 const deduplicateTeamMembers = (members: User[]): User[] => {
   const seen = new Set<string>();
   return members.filter(member => {
+    // Filter out invalid members
+    if (!member || !member.$id || typeof member.$id !== 'string') {
+      return false;
+    }
+    
     if (seen.has(member.$id)) {
-
       return false;
     }
     seen.add(member.$id);
@@ -92,8 +96,10 @@ export default function DashboardPage() {
     lastName: '',
     email: '',
     username: '',
+    password: '',
     role: 'EMPLOYEE' as 'EMPLOYEE' | 'MANAGER',
-    paidLeaves: 25,
+    managerId: '', // Add manager selection
+    paidLeaves: 20,
     sickLeaves: 12,
     compOffs: 0,
   });
@@ -108,6 +114,7 @@ export default function DashboardPage() {
   const [pendingApprovals, setPendingApprovals] = useState<DashboardApprovalRequest[]>([]);
   const [todaySchedule, setTodaySchedule] = useState<DashboardShift[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]); // Add state for all users
 
   // Approval dialog state
   const [selectedApproval, setSelectedApproval] = useState<DashboardApprovalRequest | null>(null);
@@ -136,6 +143,28 @@ export default function DashboardPage() {
     }
   };
   
+  // Helper function to get current week range (Monday to Sunday)
+  const getCurrentWeekRange = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // If Sunday, go back 6 days, otherwise go to Monday
+    
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+    
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    
+    return {
+      start: monday.toISOString(),
+      end: sunday.toISOString(),
+      startDate: monday.toISOString().split('T')[0],
+      endDate: sunday.toISOString().split('T')[0]
+    };
+  };
+
   const fetchDashboardData = useCallback(async () => {
     if (!userId || !userRole) {
       return;
@@ -146,14 +175,11 @@ export default function DashboardPage() {
       
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
-      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days from today = 7 days from tomorrow
+      const currentWeek = getCurrentWeekRange();
 
       // Create proper date ranges for querying (add time components)
       const todayStart = `${today}T00:00:00.000Z`;
       const todayEnd = `${today}T23:59:59.999Z`;
-      const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
-      const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
 
       // Handle UPPERCASE roles from Appwrite
       // Use the component-level isManagerOrAdmin variable
@@ -161,22 +187,16 @@ export default function DashboardPage() {
       const [
         allUsers,
         todayShifts,
-        upcomingShiftsRaw,
+        currentWeekShifts,
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
-        shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd), // Next 7 days from tomorrow
+        shiftService.getShiftsByDateRange(currentWeek.start, currentWeek.end), // Current week shifts (Monday to Sunday)
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
-
-      // Filter out any shifts that happen to be for today (extra safety)
-      const upcomingShifts = upcomingShiftsRaw.filter(shift => {
-        const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
-        return shiftDate !== today; // Exclude today
-      });
 
       // Filter data based on user role (use allUsers for filtering)
       const displayUsers = allUsers;
@@ -195,10 +215,10 @@ export default function DashboardPage() {
       
       // Calculate dashboard stats - fix employee count to only include employees
       const dashboardStats: DashboardStats = {
-        totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
+        totalEmployees: isManagerOrAdmin ? employeesOnly.length : currentWeekShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their current week shifts count
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: isManagerOrAdmin ? 0 : filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length, // Only show swap requests for employees
-        upcomingShifts: upcomingShifts.length,
+        upcomingShifts: isManagerOrAdmin ? currentWeekShifts.length : currentWeekShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show only their current week shifts
       };
 
       // Build pending approvals (only for managers/admins)
@@ -262,6 +282,7 @@ export default function DashboardPage() {
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleWithNames);
       setTeamMembers(deduplicateTeamMembers(employeesOnly)); // Use only employees for drag-and-drop (no managers/admins for on-call)
+      setAllUsers(displayUsers); // Store all users for manager dropdown
 
     } catch (error) {
 
@@ -284,6 +305,7 @@ export default function DashboardPage() {
       setPendingApprovals([]);
       setTodaySchedule([]);
       setTeamMembers([]);
+      setAllUsers([]);
     } finally {
       setIsLoading(false);
     }
@@ -297,14 +319,11 @@ export default function DashboardPage() {
 
       // Parallel data fetching for better performance
       const today = new Date().toISOString().split('T')[0];
-      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const sevenDaysFromTomorrow = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 8 days = 7 days from tomorrow
+      const currentWeek = getCurrentWeekRange();
 
       // Create proper date ranges for querying (add time components)
       const todayStart = `${today}T00:00:00.000Z`;
       const todayEnd = `${today}T23:59:59.999Z`;
-      const tomorrowStart = `${tomorrow}T00:00:00.000Z`;
-      const sevenDaysEnd = `${sevenDaysFromTomorrow}T23:59:59.999Z`;
 
       // Handle UPPERCASE roles from Appwrite
       // Use the component-level isManagerOrAdmin variable
@@ -312,22 +331,16 @@ export default function DashboardPage() {
       const [
         allUsers,
         todayShifts,
-        upcomingShiftsRaw,
+        currentWeekShifts,
         allLeaveRequests,
         allSwapRequests,
       ] = await Promise.all([
         userService.getAllUsers(), // Always get all users for proper User type
         shiftService.getShiftsByDateRange(todayStart, todayEnd), // Use proper date range for today
-        shiftService.getShiftsByDateRange(tomorrowStart, sevenDaysEnd), // Next 7 days from tomorrow
+        shiftService.getShiftsByDateRange(currentWeek.start, currentWeek.end), // Current week shifts (Monday to Sunday)
         isManagerOrAdmin ? leaveService.getAllLeaveRequests() : leaveService.getLeaveRequestsByUser(userId),
         isManagerOrAdmin ? swapService.getAllSwapRequests() : swapService.getSwapRequestsByUser(userId),
       ]);
-
-      // Filter out any shifts that happen to be for today (extra safety)
-      const upcomingShifts = upcomingShiftsRaw.filter(shift => {
-        const shiftDate = shift.date.split('T')[0]; // Extract date part from datetime
-        return shiftDate !== today; // Exclude today
-      });
 
       // Filter data based on user role (use allUsers for filtering)
       const displayUsers = allUsers;
@@ -346,10 +359,10 @@ export default function DashboardPage() {
       
       // Calculate dashboard stats
       const dashboardStats: DashboardStats = {
-        totalEmployees: isManagerOrAdmin ? employeesOnly.length : upcomingShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their upcoming shifts count
+        totalEmployees: isManagerOrAdmin ? employeesOnly.length : currentWeekShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show their current week shifts count
         pendingLeaveRequests: filteredLeaveRequests.filter((lr: LeaveRequest) => lr.status === 'PENDING').length,
         pendingSwapRequests: filteredSwapRequests.filter((sr: SwapRequest) => sr.status === 'PENDING').length,
-        upcomingShifts: upcomingShifts.length,
+        upcomingShifts: isManagerOrAdmin ? currentWeekShifts.length : currentWeekShifts.filter((s: Shift) => s.userId === userId).length, // For employees, show only their current week shifts
       };
 
       // Build pending approvals list
@@ -421,6 +434,7 @@ export default function DashboardPage() {
       setPendingApprovals(pendingApprovalsList);
       setTodaySchedule(todayScheduleList);
       setTeamMembers(deduplicateTeamMembers(employeesOnly)); // Use only employees for drag-and-drop (no managers/admins for on-call)
+      setAllUsers(displayUsers); // Store all users for manager dropdown
       
     } catch {
       
@@ -618,10 +632,31 @@ export default function DashboardPage() {
 
         return { ...prevStats, totalEmployees: employeeCount };
       });
-    } catch (error) {
-      console.error('❌ Error refreshing user count:', error);
+    } catch {
+      
     }
   }, [isManagerOrAdmin]);
+
+  // Helper function to refresh current week shifts count (for "My Shifts This week" stat)
+  const refreshCurrentWeekShiftsCount = useCallback(async () => {
+    try {
+      const currentWeek = getCurrentWeekRange();
+      
+      // Get shifts for current week (Monday to Sunday)
+      const currentWeekShifts = await shiftService.getShiftsByDateRange(currentWeek.start, currentWeek.end);
+      
+      // For managers/admins, show total employees count; for employees, show their current week shifts count
+      const currentWeekCount = isManagerOrAdmin 
+        ? stats.totalEmployees // Keep existing employee count for managers/admins
+        : currentWeekShifts.filter(shift => shift.userId === userId).length;
+
+      setStats(prevStats => {
+        return { ...prevStats, totalEmployees: isManagerOrAdmin ? prevStats.totalEmployees : currentWeekCount };
+      });
+    } catch {
+      
+    }
+  }, [isManagerOrAdmin, userId, stats.totalEmployees]);
 
   // Helper function to refresh upcoming shifts count from database
   const refreshUpcomingShiftsCount = useCallback(async () => {
@@ -644,16 +679,16 @@ export default function DashboardPage() {
         return shiftDate !== today; // Exclude today
       });
       
-      const upcomingCount = upcomingShifts.length;
+      // For employees, only count their own shifts
+      const upcomingCount = isManagerOrAdmin ? upcomingShifts.length : upcomingShifts.filter(shift => shift.userId === userId).length;
 
       setStats(prevStats => {
-
         return { ...prevStats, upcomingShifts: upcomingCount };
       });
-    } catch (error) {
-      console.error('❌ Error refreshing upcoming shifts count:', error);
+    } catch {
+      
     }
-  }, []);
+  }, [isManagerOrAdmin, userId]);
 
   // Effect to refresh user count when user collection changes
   useEffect(() => {
@@ -704,6 +739,31 @@ export default function DashboardPage() {
       unsubscribe();
     };
   }, [user, refreshUpcomingShiftsCount]);
+
+  // Effect to refresh current week shifts count for "My Shifts This week" stat
+  useEffect(() => {
+    if (!user) return;
+
+    let refreshTimeout: NodeJS.Timeout;
+    
+    const handleCurrentWeekShiftsChange = () => {
+      // Debounce the refresh to avoid multiple calls
+      clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => {
+        refreshCurrentWeekShiftsCount();
+      }, 500); // 500ms debounce
+    };
+
+    const unsubscribe = client.subscribe(
+      [`databases.${DATABASE_ID}.collections.${COLLECTIONS.SHIFTS}.documents`],
+      handleCurrentWeekShiftsChange
+    );
+
+    return () => {
+      clearTimeout(refreshTimeout);
+      unsubscribe();
+    };
+  }, [user, refreshCurrentWeekShiftsCount]);
 
   const handleTeamMemberUpdate = useCallback(async (payload: Record<string, unknown>, eventType: string) => {
     try {// Debug logging
@@ -787,8 +847,8 @@ export default function DashboardPage() {
           return filteredMembers;
         });
       }
-    } catch (error) {
-      console.error('❌ Error handling team member update:', error);
+    } catch {
+      
       await silentRefreshDashboard();
     }
   }, [silentRefreshDashboard, teamMembers]);
@@ -823,8 +883,8 @@ export default function DashboardPage() {
             selectedApproval.$id!,
             approvalComment
           );
-        } catch (notificationError) {
-          console.error('Error creating leave approval notification:', notificationError);
+        } catch {
+          
         }
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
@@ -841,8 +901,8 @@ export default function DashboardPage() {
             selectedApproval.$id!,
             user ? `${user.firstName} ${user.lastName}` : 'Manager'
           );
-        } catch (notificationError) {
-          console.error('Error creating swap approval notification:', notificationError);
+        } catch {
+          
         }
       }
       
@@ -892,8 +952,8 @@ export default function DashboardPage() {
             selectedApproval.$id!,
             approvalComment
           );
-        } catch (notificationError) {
-          console.error('Error creating leave rejection notification:', notificationError);
+        } catch {
+          
         }
       } else if (selectedApproval._type === 'swap') {
         await swapService.updateSwapRequest(selectedApproval.$id!, {
@@ -910,8 +970,8 @@ export default function DashboardPage() {
             selectedApproval.$id!,
             user ? `${user.firstName} ${user.lastName}` : 'Manager'
           );
-        } catch (notificationError) {
-          console.error('Error creating swap rejection notification:', notificationError);
+        } catch {
+          
         }
       }
       
@@ -1107,7 +1167,7 @@ export default function DashboardPage() {
   }, [scheduleForm, toast, fetchDashboardData]);
 
   // Team member handlers
-  const handleAddMember = useCallback(() => {
+  const handleAddMember = useCallback(async () => {
     setIsEditingMember(false);
     setEditingMemberId(null);
     setMemberForm({
@@ -1115,13 +1175,26 @@ export default function DashboardPage() {
       lastName: '',
       email: '',
       username: '',
+      password: '',
       role: 'EMPLOYEE',
-      paidLeaves: 25,
+      managerId: '',
+      paidLeaves: 20,
       sickLeaves: 12,
       compOffs: 0,
     });
+    
+    // Ensure we have all users for the manager dropdown
+    try {
+      if (allUsers.length === 0) {
+        const users = await userService.getAllUsers();
+        setAllUsers(users);
+      }
+    } catch {
+      
+    }
+    
     setIsTeamMemberDialogOpen(true);
-  }, []);
+  }, [allUsers.length]);
 
   const handleEditMember = useCallback((member: User) => {
     setIsEditingMember(true);
@@ -1131,8 +1204,10 @@ export default function DashboardPage() {
       lastName: member.lastName,
       email: member.email,
       username: member.username,
+      password: '', // Password field is not needed for editing
       role: member.role as 'EMPLOYEE' | 'MANAGER',
-      paidLeaves: member.paidLeaves || 25,
+      managerId: ('managerId' in member ? (member as User & { managerId?: string }).managerId : '') || '', // Get manager ID if exists
+      paidLeaves: member.paidLeaves || 20,
       sickLeaves: member.sickLeaves || 12,
       compOffs: member.compOffs || 0,
     });
@@ -1148,16 +1223,24 @@ export default function DashboardPage() {
     if (!memberToDelete) return;
 
     try {
-      await userService.deleteUser(memberToDelete);
+      const response = await fetch(`/api/users/${memberToDelete}/delete`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete user');
+      }
+
       setTeamMembers(prev => prev.filter(m => m.$id !== memberToDelete));
       toast({
         title: "Success",
         description: "Team member deleted successfully.",
       });
-    } catch {
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to delete team member. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to delete team member. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -1177,8 +1260,26 @@ export default function DashboardPage() {
           description: "Team member updated successfully.",
         });
       } else {
-        // Create new member
-        const newUser = await userService.createUser(memberForm);
+        // Create new member using synchronized API
+        const formData = {
+          ...memberForm,
+          managerId: memberForm.managerId === 'none' ? undefined : memberForm.managerId
+        };
+        
+        const response = await fetch('/api/user-management', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(formData),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to create user');
+        }
+
+        const newUser = await response.json();
         setTeamMembers(prev => deduplicateTeamMembers([...prev, newUser]));
         toast({
           title: "Success",
@@ -1221,6 +1322,11 @@ export default function DashboardPage() {
 
   // Helper function to get consistent user colors
   const getUserColor = useCallback((userId: string, role?: 'PRIMARY' | 'BACKUP' | 'MANAGER' | 'EMPLOYEE') => {
+    // Safety check for undefined userId
+    if (!userId || typeof userId !== 'string') {
+      userId = 'default-user-id';
+    }
+
     // Professional color palettes
     const primaryColors = [
       { bg: 'bg-blue-600', text: 'text-blue-600', border: 'border-blue-200', light: 'bg-blue-50' },
@@ -1789,6 +1895,11 @@ export default function DashboardPage() {
               ) : teamMembers.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {teamMembers.map((member) => {
+                    // Safety check for member data
+                    if (!member || !member.$id) {
+                      return null;
+                    }
+                    
                     const userColors = getUserColor(member.$id, member.role as 'MANAGER' | 'EMPLOYEE');
                     
                     return (
@@ -2131,6 +2242,19 @@ export default function DashboardPage() {
               />
             </div>
             
+            {!isEditingMember && (
+              <div>
+                <Label htmlFor="password">Password *</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={memberForm.password}
+                  onChange={(e) => setMemberForm(prev => ({ ...prev, password: e.target.value }))}
+                  placeholder="Enter password"
+                />
+              </div>
+            )}
+            
             <div>
               <Label htmlFor="role">Role *</Label>
               <Select
@@ -2146,6 +2270,32 @@ export default function DashboardPage() {
                 </SelectContent>
               </Select>
             </div>
+            
+            {/* Manager Selection - only show for employees */}
+            {memberForm.role === 'EMPLOYEE' && (
+              <div>
+                <Label htmlFor="manager">Manager</Label>
+                <Select
+                  value={memberForm.managerId}
+                  onValueChange={(value: string) => setMemberForm(prev => ({ ...prev, managerId: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select manager (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Manager</SelectItem>
+                    {allUsers
+                      .filter(user => user.role === 'MANAGER' || user.role === 'ADMIN')
+                      .map(manager => (
+                        <SelectItem key={manager.$id} value={manager.$id}>
+                          {manager.firstName} {manager.lastName} ({manager.role})
+                        </SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             
             <div className="grid grid-cols-3 gap-4">
               <div>
