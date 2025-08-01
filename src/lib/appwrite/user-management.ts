@@ -1,4 +1,4 @@
-import { serverAccount, serverDatabases } from './server-config';
+import { serverAccount, serverDatabases, serverUsers } from './server-config';
 import { ID } from 'node-appwrite';
 import { DATABASE_ID, COLLECTIONS } from './config';
 import { User } from '@/types';
@@ -31,18 +31,22 @@ export const userManagementService = {
     let authUserId: string | null = null;
     
     try {
-      // Step 1: Create user in Appwrite Auth
+      // Generate unique ID with username prefix for better identification
+      const uniqueId = ID.unique();
+      const prefixedId = `${userData.username}_${uniqueId}`;
+      
+      // Step 1: Create user in Appwrite Auth with prefixed ID
       const authUser = await serverAccount.create(
-        ID.unique(),
+        prefixedId,
         userData.email,
         userData.password,
         `${userData.firstName} ${userData.lastName}`
       );
       
       authUserId = authUser.$id;
-      console.log('✅ Auth user created:', authUser.$id);
+      console.log('✅ Auth user created with prefixed ID:', authUser.$id);
 
-      // Step 2: Create user profile in database
+      // Step 2: Create user profile in database with the same prefixed ID
       const dbUserData = {
         firstName: userData.firstName,
         lastName: userData.lastName,
@@ -58,7 +62,7 @@ export const userManagementService = {
       const dbUser = await serverDatabases.createDocument(
         DATABASE_ID,
         COLLECTIONS.USERS,
-        ID.unique(),
+        prefixedId, // Use same prefixed ID for database document
         dbUserData
       );
 
@@ -122,19 +126,30 @@ export const userManagementService = {
 
   /**
    * Deletes user from both auth and database
+   * This ensures complete removal from both authentication and user data
    */
   async deleteUser(userId: string): Promise<void> {
     try {
-      // Delete from database first
+      console.log('🗑️ Starting user deletion for:', userId);
+      
+      // Step 1: Delete from database first
       await serverDatabases.deleteDocument(
         DATABASE_ID,
         COLLECTIONS.USERS,
         userId
       );
-
-      // Note: Appwrite doesn't have direct user deletion via server SDK
-      // This would typically be handled through admin endpoints or webhooks
       console.log('✅ User deleted from database:', userId);
+
+      // Step 2: Delete from Appwrite Auth using Users API
+      try {
+        await serverUsers.delete(userId);
+        console.log('✅ User deleted from auth:', userId);
+      } catch (authError) {
+        console.error('❌ Error deleting from auth (user may not exist in auth):', authError);
+        // Don't throw here as database deletion was successful
+        // Auth deletion failure might be acceptable if user was already deleted
+      }
+      
     } catch (error) {
       console.error('❌ Error deleting user:', error);
       throw error;

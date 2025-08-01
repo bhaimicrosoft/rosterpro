@@ -1,4 +1,4 @@
-import { Client, Account, Databases, Storage, Functions } from 'node-appwrite';
+import { Client, Account, Databases, Storage, Functions, Users } from 'node-appwrite';
 
 // Server-side Appwrite configuration for API routes
 const serverClient = new Client()
@@ -11,5 +11,6 @@ export const serverAccount = new Account(serverClient);
 export const serverDatabases = new Databases(serverClient);
 export const serverStorage = new Storage(serverClient);
 export const serverFunctions = new Functions(serverClient);
+export const serverUsers = new Users(serverClient);
 
 export default serverClient;

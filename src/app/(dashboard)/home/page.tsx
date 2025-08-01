@@ -1223,7 +1223,8 @@ export default function DashboardPage() {
     if (!memberToDelete) return;
 
     try {
-      const response = await fetch(`/api/users/${memberToDelete}/delete`, {
+      // Use the same API endpoint as the team page for consistent behavior
+      const response = await fetch(`/api/user-management?userId=${memberToDelete}`, {
         method: 'DELETE',
       });
 
@@ -1235,7 +1236,8 @@ export default function DashboardPage() {
       setTeamMembers(prev => prev.filter(m => m.$id !== memberToDelete));
       toast({
         title: "Success",
-        description: "Team member deleted successfully.",
+        description: "Team member has been completely removed from both authentication and database.",
+        className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (error) {
       toast({

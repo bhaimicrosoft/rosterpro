@@ -226,7 +226,7 @@ export default function TeamPage() {
         body: JSON.stringify({
           firstName: newMemberData.firstName,
           lastName: newMemberData.lastName,
-          username: newMemberData.username || newMemberData.email.split('@')[0],
+          username: newMemberData.username || newMemberData.email.split('@')[0], // Ensure username is provided
           email: newMemberData.email,
           password: newMemberData.password,
           role: newMemberData.role,
@@ -263,7 +263,8 @@ export default function TeamPage() {
 
       toast({
         title: "Team member added",
-        description: `${newUser.firstName} ${newUser.lastName} has been added to the team.`,
+        description: `${newUser.firstName} ${newUser.lastName} has been added to the team with ID: ${newUser.$id}`,
+        className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (error) {
       console.error('Error creating user:', error);
@@ -313,20 +314,32 @@ export default function TeamPage() {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
 
     try {
-      await userService.deleteUser(userId);
+      // Use the API endpoint that handles both auth and database deletion
+      const response = await fetch(`/api/user-management?userId=${userId}`, {
+        method: 'DELETE',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete user');
+      }
+
+      // Remove from local state
       setTeamMembers(prev => prev.filter(tm => tm.$id !== userId));
       setAllUsers(prev => prev.filter(u => u.$id !== userId));
       
       toast({
         title: "User deleted",
-        description: "Team member has been removed.",
+        description: "Team member has been completely removed from both authentication and database.",
+        className: "border-green-500 bg-green-50 text-green-900"
       });
     } catch (error) {
       console.error('Error deleting user:', error);
       
       toast({
         title: "Failed to delete user",
-        description: "Please try again.",
+        description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
     }

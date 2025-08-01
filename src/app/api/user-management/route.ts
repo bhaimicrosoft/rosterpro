@@ -16,11 +16,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Ensure username is provided, fallback to email prefix if not provided
+    const username = userData.username || userData.email.split('@')[0];
+    
+    // Validate username format (only alphanumeric and underscore allowed for clean IDs)
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      return NextResponse.json(
+        { error: 'Username must contain only letters, numbers, and underscores' },
+        { status: 400 }
+      );
+    }
+
     // Create user in both auth and database
     const result = await userManagementService.createUser({
       firstName: userData.firstName,
       lastName: userData.lastName,
-      username: userData.username || userData.email.split('@')[0],
+      username: username, // Use the validated username
       email: userData.email,
       password: userData.password,
       role: userData.role,

@@ -140,7 +140,22 @@ export const shiftService = {
           Query.greaterThanEqual('date', startDate),
           Query.lessThanEqual('date', endDate),
           Query.orderAsc('date'),
+          Query.limit(10000) // Large limit to support unlimited date ranges
         ]
+      );
+      return castDocuments<Shift>(response.documents);
+    } catch (error) {
+      
+      throw error;
+    }
+  },
+
+  async getAllShifts() {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTIONS.SHIFTS,
+        [Query.orderAsc('date'), Query.limit(10000)] // Large limit to get all shifts
       );
       return castDocuments<Shift>(response.documents);
     } catch (error) {

@@ -5,7 +5,18 @@ import { useAuth } from '@/contexts/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Grid3X3, CalendarDays, RefreshCw, Loader2 } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Grid3X3, CalendarDays, RefreshCw, Loader2, Download, Upload } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,12 +29,14 @@ import { useToast } from '@/hooks/use-toast';
 import { shiftService, userService, leaveService } from '@/lib/appwrite/database';
 import { Shift, User, EmployeeOnLeave, WeeklyLeaveData, LeaveType } from '@/types';
 import client, { DATABASE_ID, COLLECTIONS } from '@/lib/appwrite/config';
+import * as XLSX from 'xlsx';
 
 interface CalendarDay {
   date: string;
   day: number;
   isCurrentMonth: boolean;
   shifts: { primary?: User; backup?: User };
+  shiftStatus?: { primary: 'SCHEDULED' | 'COMPLETED' | 'SWAPPED'; backup: 'SCHEDULED' | 'COMPLETED' | 'SWAPPED' };
   employeesOnLeave?: EmployeeOnLeave[];
 }
 
@@ -38,6 +51,27 @@ export default function SchedulePage() {
   const [weeklyLeaveData, setWeeklyLeaveData] = useState<WeeklyLeaveData>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
+  
+  // Export dialog state
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
+  
+  // Import dialog state
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  
+  // Import summary state
+  const [showImportSummary, setShowImportSummary] = useState(false);
+  const [importSummary, setImportSummary] = useState<{
+    totalRows: number;
+    successfulShifts: number;
+    errors: string[];
+    warnings: string[];
+  } | null>(null);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -75,6 +109,324 @@ export default function SchedulePage() {
 
   const formatDisplayName = (firstName: string, lastName: string) => {
     return `${firstName} ${lastName}`;
+  };
+
+  // Export functionality
+  const handleExportSchedule = async () => {
+    if (!exportStartDate || !exportEndDate) {
+      toast({
+        title: "Validation Error",
+        description: "Please select both start and end dates",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (new Date(exportStartDate) > new Date(exportEndDate)) {
+      toast({
+        title: "Validation Error",
+        description: "Start date must be before end date",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Fetch shifts for the date range
+      const startDate = `${exportStartDate}T00:00:00.000Z`;
+      const endDate = `${exportEndDate}T23:59:59.999Z`;
+      
+      const shiftsInRange = await shiftService.getShiftsByDateRange(startDate, endDate);
+      const users = await userService.getAllUsers();
+      
+      // Create user map for quick lookup
+      const userMap = new Map(users.map(user => [user.$id, user]));
+      
+      // Group shifts by date
+      const shiftsByDate = new Map<string, { primary?: User; backup?: User }>();
+      
+      shiftsInRange.forEach(shift => {
+        const dateKey = shift.date.split('T')[0];
+        const user = userMap.get(shift.userId);
+        
+        if (!shiftsByDate.has(dateKey)) {
+          shiftsByDate.set(dateKey, {});
+        }
+        
+        const dayShifts = shiftsByDate.get(dateKey)!;
+        if (shift.onCallRole === 'PRIMARY') {
+          dayShifts.primary = user;
+        } else if (shift.onCallRole === 'BACKUP') {
+          dayShifts.backup = user;
+        }
+      });
+      
+      // Generate export data
+      const exportData = [];
+      const currentDate = new Date(exportStartDate);
+      const endDateObj = new Date(exportEndDate);
+      
+      while (currentDate <= endDateObj) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const dayShifts = shiftsByDate.get(dateStr) || {};
+        const dayOfWeek = currentDate.toLocaleDateString('en-US', { weekday: 'long' });
+        
+        exportData.push({
+          Primary: dayShifts.primary?.username || '',
+          Backup: dayShifts.backup?.username || '',
+          Date: dateStr,
+          Day: dayOfWeek
+        });
+        
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Create workbook and worksheet
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Schedule');
+      
+      // Generate unique filename with date range and timestamp
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19); // Format: YYYY-MM-DDTHH-MM-SS
+      const dateRangeFormatted = `${exportStartDate}_to_${exportEndDate}`;
+      const filename = `RosterPro_Schedule_${dateRangeFormatted}_exported_${timestamp}.xlsx`;
+      
+      // Save the file
+      XLSX.writeFile(workbook, filename);
+      
+      toast({
+        title: "Export Successful",
+        description: `Schedule exported as ${filename}`,
+      });
+      
+      setIsExportDialogOpen(false);
+      setExportStartDate('');
+      setExportEndDate('');
+      
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export schedule. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Import functionality with real-time streaming
+  const handleImportSchedule = async () => {
+    if (!importFile) {
+      toast({
+        title: "Validation Error",
+        description: "Please select a file to import",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsImporting(true);
+    setImportProgress(0);
+    
+    try {
+      // Read the Excel file
+      const arrayBuffer = await importFile.arrayBuffer();
+      setImportProgress(5);
+      
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      setImportProgress(10);
+      
+      // Convert to JSON with proper options for date handling
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+        raw: false, // This prevents Excel dates from being converted to numbers
+        dateNF: 'yyyy-mm-dd' // Format dates as YYYY-MM-DD
+      }) as Array<{
+        Primary?: string;
+        Backup?: string;
+        Date?: string | number;
+        Day?: string;
+      }>;
+      setImportProgress(15);
+
+      if (jsonData.length === 0) {
+        toast({
+          title: "Import Error",
+          description: "The file appears to be empty or invalid",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate required columns
+      const requiredColumns = ['Primary', 'Backup', 'Date', 'Day'];
+      const firstRow = jsonData[0];
+      const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+      
+      if (missingColumns.length > 0) {
+        toast({
+          title: "Import Error",
+          description: `Missing required columns: ${missingColumns.join(', ')}`,
+          variant: "destructive",
+        });
+        return;
+      }
+      setImportProgress(20);
+
+      // Fetch existing shifts for intelligent duplicate detection
+      toast({
+        title: "Fetching existing shifts...",
+        description: "Analyzing current schedule for duplicate detection",
+      });
+
+      const existingShifts = await shiftService.getAllShifts();
+      setImportProgress(25);
+
+      const allErrors: string[] = [];
+      const allSkipped: string[] = [];
+      let totalCreated = 0;
+      let totalUpdated = 0;
+
+      // Process shifts in real-time (streaming)
+      const totalRows = jsonData.length;
+      const processPromises = jsonData.map(async (shift, index) => {
+        try {
+          const response = await fetch('/api/schedule/import-stream', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              shift, 
+              existingShifts: existingShifts.map((s: Shift) => ({
+                $id: s.$id,
+                date: s.date.split('T')[0], // Normalize date format
+                onCallRole: s.onCallRole,
+                userId: s.userId
+              }))
+            }),
+          });
+
+          const result = await response.json();
+
+          // Update progress in real-time
+          const progressPercent = 25 + ((index + 1) / totalRows) * 70;
+          setImportProgress(progressPercent);
+
+          if (!response.ok) {
+            allErrors.push(`Row ${index + 1}: ${result.error || 'Import failed'}`);
+            return { success: false, errors: [result.error] };
+          }
+
+          // Track results
+          if (result.createdShifts) {
+            interface CreatedShift {
+              action: string;
+              username: string;
+              role: string;
+            }
+            const created = result.createdShifts.filter((s: CreatedShift) => s.action === 'created').length;
+            const updated = result.createdShifts.filter((s: CreatedShift) => s.action === 'updated').length;
+            totalCreated += created;
+            totalUpdated += updated;
+          }
+          
+          if (result.errors && result.errors.length > 0) {
+            allErrors.push(...result.errors.map((e: string) => `Row ${index + 1}: ${e}`));
+          }
+
+          if (result.skipped && result.skipped.length > 0) {
+            allSkipped.push(...result.skipped.map((s: string) => `Row ${index + 1}: ${s}`));
+          }
+
+          return result;
+
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          allErrors.push(`Row ${index + 1}: ${errorMsg}`);
+          return { success: false, errors: [errorMsg] };
+        }
+      });
+
+      // Wait for all promises to complete (parallel processing)
+      toast({
+        title: "Processing shifts in parallel...",
+        description: "Creating shifts simultaneously for optimal performance",
+      });
+
+      await Promise.all(processPromises);
+      setImportProgress(100);
+
+      // Categorize errors and warnings
+      const userNotFoundErrors = allErrors.filter(error => error.includes('User not found'));
+      const dateErrors = allErrors.filter(error => error.includes('Invalid date'));
+
+      // Set summary data
+      setImportSummary({
+        totalRows: jsonData.length,
+        successfulShifts: totalCreated + totalUpdated,
+        errors: allErrors,
+        warnings: [
+          ...allSkipped,
+          ...userNotFoundErrors.map(err => `Missing user: ${err.split(': ')[1] || err}`),
+          ...dateErrors.map(err => `Date format issue: ${err}`),
+        ]
+      });
+
+      // Show appropriate toast
+      if (allErrors.length === 0) {
+        toast({
+          title: "Import Successful",
+          description: `Successfully processed ${totalCreated + totalUpdated} shifts (${totalCreated} created, ${totalUpdated} updated) from ${jsonData.length} rows`,
+          className: "border-green-500 bg-green-50 text-green-900"
+        });
+      } else if (totalCreated + totalUpdated > 0) {
+        toast({
+          title: "Import Partially Successful",
+          description: `Processed ${totalCreated + totalUpdated} shifts (${totalCreated} created, ${totalUpdated} updated), but ${allErrors.length} errors occurred`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Import Failed",
+          description: `No shifts were processed. ${allErrors.length} errors occurred.`,
+          variant: "destructive",
+        });
+      }
+
+      // Refresh the schedule data to show real-time updates
+      await fetchScheduleData();
+      
+      // Show summary dialog
+      setShowImportSummary(true);
+      setIsImportDialogOpen(false);
+      setImportFile(null);
+      
+    } catch (error) {
+      console.error('Import error:', error);
+      toast({
+        title: "Import Failed",
+        description: error instanceof Error ? error.message : "Failed to import schedule. Please try again.",
+        variant: "destructive",
+      });
+      
+      setImportSummary({
+        totalRows: 0,
+        successfulShifts: 0,
+        errors: [error instanceof Error ? error.message : 'Unknown error occurred'],
+        warnings: []
+      });
+      setShowImportSummary(true);
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
+    }
   };
 
   const generateCalendar = useCallback(() => {
@@ -186,6 +538,12 @@ export default function SchedulePage() {
       return {
         ...day,
         shifts: shiftAssignments,
+        ...(primaryShift || backupShift ? {
+          shiftStatus: {
+            primary: primaryShift?.status || 'SCHEDULED',
+            backup: backupShift?.status || 'SCHEDULED',
+          }
+        } : {}),
         employeesOnLeave: weeklyLeaveData[day.date] || []
       };
     });
@@ -215,15 +573,18 @@ export default function SchedulePage() {
         
         console.log(`📅 Week view debug: currentDate=${currentDate.toISOString().split('T')[0]}, startOfWeek=${startDateStr}, endOfWeek=${endDateStr}`);
       } else {
-        // For month view, get extended date range
+        // For month view, get extended date range to support imports across years
+        // This covers 1 year before and 1 year after current month for performance
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         
-        const startDate = new Date(year, month - 1, 20);
-        const endDate = new Date(year, month + 2, 10);
+        const startDate = new Date(year - 1, month, 1);  // 1 year before current month
+        const endDate = new Date(year + 1, month + 1, 0); // 1 year after current month
         
         startDateStr = startDate.toISOString().split('T')[0];
         endDateStr = endDate.toISOString().split('T')[0];
+        
+        console.log(`📅 Month view: Fetching extended range from ${startDateStr} to ${endDateStr}`);
       }
 
       // Fetch data
@@ -305,15 +666,18 @@ export default function SchedulePage() {
         
         console.log(`📅 Silent refetch debug: currentDate=${currentDate.toISOString().split('T')[0]}, startOfWeek=${startDateStr}, endOfWeek=${endDateStr}`);
       } else {
-        // For month view, get extended date range
+        // For month view, get extended date range to support imports across years
+        // This covers 1 year before and 1 year after current month for performance
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         
-        const startDate = new Date(year, month - 1, 20);
-        const endDate = new Date(year, month + 2, 10);
+        const startDate = new Date(year - 1, month, 1);  // 1 year before current month
+        const endDate = new Date(year + 1, month + 1, 0); // 1 year after current month
         
         startDateStr = startDate.toISOString().split('T')[0];
         endDateStr = endDate.toISOString().split('T')[0];
+        
+        console.log(`📅 Silent refetch: Fetching extended range from ${startDateStr} to ${endDateStr}`);
       }
 
       // Fetch data
@@ -564,6 +928,59 @@ export default function SchedulePage() {
     };
   }, [user, toast, silentRefetchScheduleData]);
 
+  // Auto-completion of past shifts (daily check)
+  useEffect(() => {
+    if (!user || (user.role !== 'MANAGER' && user.role !== 'ADMIN')) return;
+
+    const checkAndAutoComplete = async () => {
+      try {
+        const response = await fetch('/api/schedule/auto-complete', {
+          method: 'POST',
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result.updatedShifts > 0) {
+            toast({
+              title: "Shifts Auto-Completed",
+              description: `${result.updatedShifts} past shifts marked as completed`,
+              duration: 3000,
+              className: "border-green-500 bg-green-50 text-green-900"
+            });
+            
+            // Refresh schedule data to show updates
+            await silentRefetchScheduleData();
+          }
+        }
+      } catch (error) {
+        console.error('Auto-completion error:', error);
+      }
+    };
+
+    // Run immediately on component mount
+    checkAndAutoComplete();
+
+    // Set up daily check at midnight
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    tomorrow.setHours(0, 1, 0, 0); // 12:01 AM
+
+    const timeUntilMidnight = tomorrow.getTime() - now.getTime();
+
+    // Set timeout for first midnight check
+    const firstTimeout = setTimeout(() => {
+      checkAndAutoComplete();
+      
+      // Then set up daily interval
+      const dailyInterval = setInterval(checkAndAutoComplete, 24 * 60 * 60 * 1000);
+      
+      return () => clearInterval(dailyInterval);
+    }, timeUntilMidnight);
+
+    return () => clearTimeout(firstTimeout);
+  }, [user, toast, silentRefetchScheduleData]);
+
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => {
       const newDate = new Date(prev);
@@ -739,6 +1156,31 @@ export default function SchedulePage() {
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Import/Export Buttons - Only for Managers */}
+            {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
+              <>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsImportDialogOpen(true)}
+                  className="h-8 px-3 text-xs"
+                >
+                  <Upload className="h-3 w-3 mr-1" />
+                  Import
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsExportDialogOpen(true)}
+                  className="h-8 px-3 text-xs"
+                >
+                  <Download className="h-3 w-3 mr-1" />
+                  Export
+                </Button>
+              </>
+            )}
+            
             {/* Refresh Button */}
             <Button 
               variant="outline" 
@@ -905,10 +1347,19 @@ export default function SchedulePage() {
                       <div className="space-y-0.5 md:space-y-1">
                         {/* Primary Assignment */}
                         {day.shifts.primary ? (
-                          <div className="text-xs bg-pink-100 dark:bg-pink-900/30 text-pink-800 dark:text-pink-200 px-1 md:px-2 py-0.5 md:py-1 rounded flex items-center justify-between">
+                          <div className={`text-xs px-1 md:px-2 py-0.5 md:py-1 rounded flex items-center justify-between ${
+                            day.shiftStatus?.primary === 'COMPLETED' 
+                              ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                              : 'bg-pink-100 dark:bg-pink-900/30 text-pink-800 dark:text-pink-200'
+                          }`}>
                             <span className="truncate">
-                              <span className="hidden sm:inline">P: {day.shifts.primary.firstName?.toUpperCase()}</span>
-                              <span className="sm:hidden">P</span>
+                              <span className="hidden sm:inline">
+                                P: {day.shifts.primary.firstName?.toUpperCase()}
+                                {day.shiftStatus?.primary === 'COMPLETED' && ' ✓'}
+                              </span>
+                              <span className="sm:hidden">
+                                P{day.shiftStatus?.primary === 'COMPLETED' && ' ✓'}
+                              </span>
                             </span>
                             {(user.role === 'MANAGER' || user.role === 'ADMIN') && day.isCurrentMonth && (
                               <DropdownMenu>
@@ -916,7 +1367,11 @@ export default function SchedulePage() {
                                   <Button 
                                     variant="ghost" 
                                     size="sm" 
-                                    className="h-4 w-4 p-0 hover:bg-pink-200 dark:hover:bg-pink-800"
+                                    className={`h-4 w-4 p-0 ${
+                                      day.shiftStatus?.primary === 'COMPLETED'
+                                        ? 'hover:bg-gray-200 dark:hover:bg-gray-700'
+                                        : 'hover:bg-pink-200 dark:hover:bg-pink-800'
+                                    }`}
                                     disabled={loadingStates[`${day.date}-primary`] || loadingStates[`${day.date}-primary-remove`]}
                                   >
                                     {loadingStates[`${day.date}-primary`] || loadingStates[`${day.date}-primary-remove`] ? (
@@ -1001,10 +1456,19 @@ export default function SchedulePage() {
                         
                         {/* Backup Assignment */}
                         {day.shifts.backup ? (
-                          <div className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 px-1 md:px-2 py-0.5 md:py-1 rounded flex items-center justify-between">
+                          <div className={`text-xs px-1 md:px-2 py-0.5 md:py-1 rounded flex items-center justify-between ${
+                            day.shiftStatus?.backup === 'COMPLETED' 
+                              ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                              : 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200'
+                          }`}>
                             <span className="truncate">
-                              <span className="hidden sm:inline">B: {day.shifts.backup.firstName?.toUpperCase()}</span>
-                              <span className="sm:hidden">B</span>
+                              <span className="hidden sm:inline">
+                                B: {day.shifts.backup.firstName?.toUpperCase()}
+                                {day.shiftStatus?.backup === 'COMPLETED' && ' ✓'}
+                              </span>
+                              <span className="sm:hidden">
+                                B{day.shiftStatus?.backup === 'COMPLETED' && ' ✓'}
+                              </span>
                             </span>
                             {(user.role === 'MANAGER' || user.role === 'ADMIN') && day.isCurrentMonth && (
                               <DropdownMenu>
@@ -1012,7 +1476,11 @@ export default function SchedulePage() {
                                   <Button 
                                     variant="ghost" 
                                     size="sm" 
-                                    className="h-4 w-4 p-0 hover:bg-purple-200 dark:hover:bg-purple-800"
+                                    className={`h-4 w-4 p-0 ${
+                                      day.shiftStatus?.backup === 'COMPLETED'
+                                        ? 'hover:bg-gray-200 dark:hover:bg-gray-700'
+                                        : 'hover:bg-purple-200 dark:hover:bg-purple-800'
+                                    }`}
                                     disabled={loadingStates[`${day.date}-backup`] || loadingStates[`${day.date}-backup-remove`]}
                                   >
                                     {loadingStates[`${day.date}-backup`] || loadingStates[`${day.date}-backup-remove`] ? (
@@ -1455,6 +1923,290 @@ export default function SchedulePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Export Dialog */}
+      <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Export Schedule</DialogTitle>
+            <DialogDescription>
+              Select the date range to export schedule data as Excel file.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="startDate" className="text-right">
+                Start Date
+              </Label>
+              <Input
+                id="startDate"
+                type="date"
+                value={exportStartDate}
+                onChange={(e) => setExportStartDate(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="endDate" className="text-right">
+                End Date
+              </Label>
+              <Input
+                id="endDate"
+                type="date"
+                value={exportEndDate}
+                onChange={(e) => setExportEndDate(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsExportDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleExportSchedule}
+              disabled={isExporting}
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Excel
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog 
+        open={isImportDialogOpen} 
+        onOpenChange={(open) => {
+          // Only allow closing if not importing
+          if (!isImporting) {
+            setIsImportDialogOpen(open);
+            if (!open) {
+              setImportFile(null);
+              setImportProgress(0);
+            }
+          }
+        }}
+      >
+        <DialogContent 
+          className="sm:max-w-[425px]"
+          onEscapeKeyDown={(e) => {
+            // Prevent closing with Escape key during import
+            if (isImporting) {
+              e.preventDefault();
+            }
+          }}
+          onPointerDownOutside={(e) => {
+            // Prevent closing by clicking outside during import
+            if (isImporting) {
+              e.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Import Schedule</DialogTitle>
+            <DialogDescription>
+              Upload an Excel file with schedule data. The file should have columns: Primary, Backup, Date, Day.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="importFile" className="text-right">
+                Excel File
+              </Label>
+              <Input
+                id="importFile"
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                className="col-span-3"
+                disabled={isImporting}
+              />
+            </div>
+            
+            {/* Progress Bar */}
+            {isImporting && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Import Progress</span>
+                  <span>{Math.round(importProgress)}%</span>
+                </div>
+                <Progress value={importProgress} className="w-full" />
+                <p className="text-xs text-muted-foreground text-center">
+                  {importProgress < 30 ? 'Reading file...' :
+                   importProgress < 40 ? 'Validating data...' :
+                   importProgress < 90 ? 'Creating shifts...' :
+                   'Finalizing import...'}
+                </p>
+              </div>
+            )}
+            
+            <div className="text-sm text-muted-foreground">
+              <p><strong>File Format:</strong></p>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                <li>Primary: Username of primary on-call employee</li>
+                <li>Backup: Username of backup on-call employee</li>
+                <li>Date: Date in YYYY-MM-DD format (Excel dates will be auto-converted)</li>
+                <li>Day: Day of the week</li>
+              </ul>
+              <p className="mt-2 text-xs text-amber-600">
+                <strong>Note:</strong> Users not found in the system will be skipped. Date format issues will be automatically handled.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setIsImportDialogOpen(false);
+                setImportFile(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleImportSchedule}
+              disabled={isImporting || !importFile}
+            >
+              {isImporting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Import Excel
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Summary Dialog */}
+      <Dialog open={showImportSummary} onOpenChange={setShowImportSummary}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Import Summary</DialogTitle>
+            <DialogDescription>
+              Here&apos;s a detailed summary of your schedule import operation.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {importSummary && (
+            <div className="space-y-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">{importSummary.totalRows}</div>
+                  <div className="text-sm text-muted-foreground">Total Rows</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">{importSummary.successfulShifts}</div>
+                  <div className="text-sm text-muted-foreground">Shifts Created</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{importSummary.errors.length}</div>
+                  <div className="text-sm text-muted-foreground">Errors</div>
+                </div>
+              </div>
+
+              {/* Success Rate */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Success Rate</span>
+                  <span>{Math.round((importSummary.successfulShifts / (importSummary.totalRows * 2)) * 100)}%</span>
+                </div>
+                <Progress 
+                  value={(importSummary.successfulShifts / (importSummary.totalRows * 2)) * 100} 
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Based on potential shifts (each row can create up to 2 shifts: Primary + Backup)
+                </p>
+              </div>
+
+              {/* Warnings */}
+              {importSummary.warnings.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-amber-600">⚠️ Warnings ({importSummary.warnings.length})</h4>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {importSummary.warnings.slice(0, 10).map((warning, index) => (
+                      <div key={index} className="text-sm text-amber-700 bg-amber-50 p-2 rounded">
+                        {warning}
+                      </div>
+                    ))}
+                    {importSummary.warnings.length > 10 && (
+                      <div className="text-xs text-muted-foreground text-center">
+                        ... and {importSummary.warnings.length - 10} more warnings
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Errors */}
+              {importSummary.errors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-red-600">❌ Errors ({importSummary.errors.length})</h4>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {importSummary.errors.slice(0, 10).map((error, index) => (
+                      <div key={index} className="text-sm text-red-700 bg-red-50 p-2 rounded">
+                        {error}
+                      </div>
+                    ))}
+                    {importSummary.errors.length > 10 && (
+                      <div className="text-xs text-muted-foreground text-center">
+                        ... and {importSummary.errors.length - 10} more errors
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Recommendations */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                <h4 className="font-medium text-blue-600 mb-2">💡 Recommendations</h4>
+                <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+                  {importSummary.warnings.some(w => w.includes('Missing user')) && (
+                    <li>• Ensure all usernames in your Excel file exist in the system</li>
+                  )}
+                  {importSummary.errors.some(e => e.includes('date')) && (
+                    <li>• Check date formats in your Excel file (use YYYY-MM-DD or Excel date format)</li>
+                  )}
+                  {importSummary.successfulShifts > 0 && (
+                    <li>• Successfully imported shifts are now visible in the schedule</li>
+                  )}
+                  <li>• Past shifts are automatically marked as completed with comp-offs for weekends</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setShowImportSummary(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
