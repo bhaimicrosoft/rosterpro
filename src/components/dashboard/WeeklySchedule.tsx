@@ -39,7 +39,6 @@ import { useIsMobile } from '@/hooks/use-is-mobile';
 import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
 import DraggableEmployeeBadge from './DraggableEmployeeBadge';
 import DroppableSlot from './DroppableSlot';
-import MobileShiftAssignment from './MobileShiftAssignment';
 
 // Utility function to ensure unique team members and prevent duplicate React keys
 const deduplicateTeamMembers = (members: User[]): User[] => {
@@ -115,6 +114,7 @@ export default function WeeklySchedule({
   const [weekSchedule, setWeekSchedule] = useState<WeeklyScheduleDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [navigating, setNavigating] = useState(false);
   
   // Animation state for smooth week transitions
   const [isAnimating, setIsAnimating] = useState(false);
@@ -202,104 +202,6 @@ export default function WeeklySchedule({
     return weekDates;
   }, [weekStartDate, isMobile]);
 
-  // Navigation functions with animation support
-  const navigateToPreviousWeek = useCallback(async () => {
-    if (!isScheduleManagement) {
-      setIsAnimating(true);
-      setAnimationDirection('right');
-    }
-    
-    const newDate = new Date(weekStartDate);
-    newDate.setDate(weekStartDate.getDate() - 7);
-    setWeekStartDate(newDate);
-    
-    // Notify parent if this is schedule management mode
-    if (isScheduleManagement && onWeekStartDateChange) {
-      onWeekStartDateChange(newDate);
-    }
-    
-    // Reset animation after a short delay
-    if (!isScheduleManagement) {
-      setTimeout(() => {
-        setIsAnimating(false);
-        setAnimationDirection('none');
-      }, 300);
-    }
-  }, [weekStartDate, isScheduleManagement, onWeekStartDateChange]);
-
-  const navigateToNextWeek = useCallback(async () => {
-    if (!isScheduleManagement) {
-      setIsAnimating(true);
-      setAnimationDirection('left');
-    }
-    
-    const newDate = new Date(weekStartDate);
-    newDate.setDate(weekStartDate.getDate() + 7);
-    setWeekStartDate(newDate);
-    
-    // Notify parent if this is schedule management mode
-    if (isScheduleManagement && onWeekStartDateChange) {
-      onWeekStartDateChange(newDate);
-    }
-    
-    // Reset animation after a short delay
-    if (!isScheduleManagement) {
-      setTimeout(() => {
-        setIsAnimating(false);
-        setAnimationDirection('none');
-      }, 300);
-    }
-  }, [weekStartDate, isScheduleManagement, onWeekStartDateChange]);
-
-  const navigateToCurrentWeek = useCallback(async () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const adjustedDay = dayOfWeek === 0 ? 7 : dayOfWeek;
-    const daysToMonday = adjustedDay - 1;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - daysToMonday);
-    
-    if (!isScheduleManagement) {
-      setIsAnimating(true);
-      setAnimationDirection('none'); // No specific direction for today
-    }
-    
-    setWeekStartDate(monday);
-    
-    // Notify parent if this is schedule management mode
-    if (isScheduleManagement && onWeekStartDateChange) {
-      onWeekStartDateChange(monday);
-    }
-    
-    // Reset animation and scroll to today on mobile
-    if (!isScheduleManagement) {
-      setTimeout(() => {
-        setIsAnimating(false);
-        setAnimationDirection('none');
-        
-        // Auto-scroll to today on mobile/tablet after week change
-        if (isHorizontalScrollLayout && scrollContainerRef.current) {
-          const todayDate = new Date().toISOString().split('T')[0];
-          const todayIndex = weekSchedule.findIndex(day => day.date === todayDate);
-          
-          if (todayIndex !== -1) {
-            const container = scrollContainerRef.current;
-            const cardWidth = 176; // w-44 = 11rem = 176px
-            const gap = 16;
-            const containerWidth = container.clientWidth;
-            const totalCardWidth = cardWidth + gap;
-            const scrollPosition = (todayIndex * totalCardWidth) - (containerWidth / 2) + (cardWidth / 2);
-            
-            container.scrollTo({
-              left: Math.max(0, scrollPosition),
-              behavior: 'smooth'
-            });
-          }
-        }
-      }, 300);
-    }
-  }, [isScheduleManagement, onWeekStartDateChange, isHorizontalScrollLayout, weekSchedule]);
-
   // Enhanced data fetching with better date handling
   const fetchWeeklyData = useCallback(async () => {
     if (!user) {
@@ -373,6 +275,131 @@ export default function WeeklySchedule({
       setLoading(false);
     }
   }, [user, getWeekDates]);
+
+  // Navigation functions with animation support and loading states
+  const navigateToPreviousWeek = useCallback(async () => {
+    if (navigating || loading) return;
+    
+    setNavigating(true);
+    if (!isScheduleManagement) {
+      setIsAnimating(true);
+      setAnimationDirection('right');
+    }
+    
+    const newDate = new Date(weekStartDate);
+    newDate.setDate(weekStartDate.getDate() - 7);
+    setWeekStartDate(newDate);
+    
+    // Notify parent if this is schedule management mode
+    if (isScheduleManagement && onWeekStartDateChange) {
+      onWeekStartDateChange(newDate);
+    }
+    
+    // Fetch new week data
+    try {
+      await fetchWeeklyData();
+    } catch (error) {
+      console.error('Error fetching previous week data:', error);
+    }
+    
+    // Reset animation and navigation state
+    setTimeout(() => {
+      setIsAnimating(false);
+      setAnimationDirection('none');
+      setNavigating(false);
+    }, 300);
+  }, [weekStartDate, isScheduleManagement, onWeekStartDateChange, navigating, loading, fetchWeeklyData]);
+
+  const navigateToNextWeek = useCallback(async () => {
+    if (navigating || loading) return;
+    
+    setNavigating(true);
+    if (!isScheduleManagement) {
+      setIsAnimating(true);
+      setAnimationDirection('left');
+    }
+    
+    const newDate = new Date(weekStartDate);
+    newDate.setDate(weekStartDate.getDate() + 7);
+    setWeekStartDate(newDate);
+    
+    // Notify parent if this is schedule management mode
+    if (isScheduleManagement && onWeekStartDateChange) {
+      onWeekStartDateChange(newDate);
+    }
+    
+    // Fetch new week data
+    try {
+      await fetchWeeklyData();
+    } catch (error) {
+      console.error('Error fetching next week data:', error);
+    }
+    
+    // Reset animation and navigation state
+    setTimeout(() => {
+      setIsAnimating(false);
+      setAnimationDirection('none');
+      setNavigating(false);
+    }, 300);
+  }, [weekStartDate, isScheduleManagement, onWeekStartDateChange, navigating, loading, fetchWeeklyData]);
+
+  const navigateToCurrentWeek = useCallback(async () => {
+    if (navigating || loading) return;
+    
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const adjustedDay = dayOfWeek === 0 ? 7 : dayOfWeek;
+    const daysToMonday = adjustedDay - 1;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - daysToMonday);
+    
+    setNavigating(true);
+    if (!isScheduleManagement) {
+      setIsAnimating(true);
+      setAnimationDirection('none'); // No specific direction for today
+    }
+    
+    setWeekStartDate(monday);
+    
+    // Notify parent if this is schedule management mode
+    if (isScheduleManagement && onWeekStartDateChange) {
+      onWeekStartDateChange(monday);
+    }
+    
+    // Fetch new week data
+    try {
+      await fetchWeeklyData();
+    } catch (error) {
+      console.error('Error fetching current week data:', error);
+    }
+    
+    // Reset animation and scroll to today on mobile
+    setTimeout(() => {
+      setIsAnimating(false);
+      setAnimationDirection('none');
+      setNavigating(false);
+      
+      // Auto-scroll to today on mobile/tablet after week change
+      if (isHorizontalScrollLayout && scrollContainerRef.current) {
+        const todayDate = new Date().toISOString().split('T')[0];
+        const todayIndex = weekSchedule.findIndex(day => day.date === todayDate);
+        
+        if (todayIndex !== -1) {
+          const container = scrollContainerRef.current;
+          const cardWidth = 176; // w-44 = 11rem = 176px
+          const gap = 16;
+          const containerWidth = container.clientWidth;
+          const totalCardWidth = cardWidth + gap;
+          const scrollPosition = (todayIndex * totalCardWidth) - (containerWidth / 2) + (cardWidth / 2);
+          
+          container.scrollTo({
+            left: Math.max(0, scrollPosition),
+            behavior: 'smooth'
+          });
+        }
+      }
+    }, 300);
+  }, [isScheduleManagement, onWeekStartDateChange, isHorizontalScrollLayout, weekSchedule, navigating, loading, fetchWeeklyData]);
 
   // Handle drag and drop
   const handleDragEnd = useCallback(async (result: DropResult) => {
@@ -891,9 +918,17 @@ export default function WeeklySchedule({
         {/* Weekly Schedule - No header for schedule management mode */}
         <Card className={className}>
           <CardContent className="p-0">
-            {/* Mobile: Enhanced Touch-friendly assignment view */}
-            {isMobile ? (
-              <div className="md:hidden">
+            {/* Animation wrapper for slide effects */}
+            <div className={`transition-all duration-300 ease-in-out ${
+              isAnimating ? 
+                animationDirection === 'left' ? 'transform -translate-x-full opacity-0' :
+                animationDirection === 'right' ? 'transform translate-x-full opacity-0' :
+                'transform scale-95 opacity-0' 
+              : 'transform translate-x-0 opacity-100'
+            }`}>
+              
+              {/* Mobile and Tablet: Enhanced Touch-friendly assignment view (up to lg breakpoint) */}
+              <div className="lg:hidden">
                 {/* Mobile Day Indicator */}
                 <div className="px-4 py-3 border-b bg-muted/30">
                   <p className="text-sm text-muted-foreground text-center">
@@ -917,7 +952,7 @@ export default function WeeklySchedule({
                     const isWeekend = day.isWeekend;
                     
                     let cardClass = 'flex-shrink-0 w-44 snap-center transition-all duration-300';
-                    let innerCardClass = 'h-full border rounded-lg';
+                    let innerCardClass = 'h-full border rounded-lg p-3';
                     
                     if (isToday) {
                       cardClass += ' scale-105'; // Slightly larger for TODAY
@@ -931,14 +966,14 @@ export default function WeeklySchedule({
                     return (
                       <div key={day.date} className={cardClass}>
                         <div className={innerCardClass}>
-                          {/* Enhanced Mobile Day Header */}
-                          <div className="p-3 text-center border-b">
+                          {/* Simplified Mobile Day Header */}
+                          <div className="text-center mb-3 pb-2 border-b">
                             <div className={`text-xs font-medium uppercase tracking-wide mb-1 ${
                               isToday ? 'text-blue-700 dark:text-blue-300' : 
                               isWeekend ? 'text-orange-600 dark:text-orange-400' : 
                               'text-muted-foreground'
                             }`}>
-                              {day.dayName}
+                              {isToday ? 'TODAY' : day.dayName}
                             </div>
                             <div className={`text-xl font-bold ${
                               isToday ? 'text-blue-700 dark:text-blue-300' : 
@@ -947,36 +982,260 @@ export default function WeeklySchedule({
                             }`}>
                               {day.dayNumber}
                             </div>
-                            {isToday && (
-                              <div className="text-xs text-blue-600 dark:text-blue-400 font-semibold mt-1 bg-blue-200 dark:bg-blue-800 rounded-full px-2 py-0.5">
-                                TODAY
-                              </div>
+                          </div>
+                          
+                          {/* Primary Assignment Section */}
+                          <div className="space-y-2 mb-3">
+                            <Badge variant="default" className="text-xs px-2 py-1 h-6 bg-blue-600 hover:bg-blue-700 font-medium">
+                              Primary
+                            </Badge>
+                            
+                            {day.primary ? (
+                              (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border-2 border-transparent hover:border-blue-300 dark:hover:border-blue-700">
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <div className="font-medium text-sm">Primary On-Call</div>
+                                          <div className="text-sm">
+                                            {(day.primary as User).firstName} {(day.primary as User).lastName}
+                                          </div>
+                                        </div>
+                                        {creatingShift === `${day.date}-primary` && (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="center" className="w-48">
+                                    <DropdownMenuLabel className="text-xs">Change Primary</DropdownMenuLabel>
+                                    {deduplicateTeamMembers(teamMembers)
+                                      .filter((employee) => {
+                                        // Exclude manager/admin
+                                        if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
+                                        // Exclude current primary user
+                                        if (day.primary && (day.primary as User).$id === employee.$id) return false;
+                                        // Exclude current backup user to prevent same person being both
+                                        if (day.backup && (day.backup as User).$id === employee.$id) return false;
+                                        return true;
+                                      })
+                                      .map((employee) => (
+                                      <DropdownMenuItem
+                                        key={`primary-${employee.$id}`}
+                                        onClick={() => handleMobileAssignment(employee.$id, 'primary', day.date)}
+                                        className="text-xs"
+                                        disabled={creatingShift === `${day.date}-primary`}
+                                      >
+                                        {employee.firstName} {employee.lastName}
+                                      </DropdownMenuItem>
+                                    ))}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleMobileRemove('primary', day.date)}
+                                      className="text-xs text-red-600 dark:text-red-400"
+                                      disabled={creatingShift === `${day.date}-primary`}
+                                    >
+                                      Remove Primary
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              ) : (
+                                <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-sm">Primary On-Call</div>
+                                      <div className="text-sm">
+                                        {(day.primary as User).firstName} {(day.primary as User).lastName}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            ) : (
+                              (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button 
+                                      variant="ghost" 
+                                      className="w-full h-16 border-2 border-dashed border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
+                                      disabled={creatingShift === `${day.date}-primary`}
+                                    >
+                                      <div className="text-center">
+                                        {creatingShift === `${day.date}-primary` ? (
+                                          <>
+                                            <Loader2 className="h-5 w-5 mx-auto mb-1 animate-spin" />
+                                            <div className="text-sm font-medium">Assigning...</div>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Plus className="h-5 w-5 mx-auto mb-1" />
+                                            <div className="text-sm font-medium">Assign Primary</div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="center" className="w-48">
+                                    <DropdownMenuLabel className="text-xs">Assign Primary</DropdownMenuLabel>
+                                    {deduplicateTeamMembers(teamMembers)
+                                      .filter((employee) => {
+                                        // Exclude manager/admin
+                                        if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
+                                        // Exclude current backup user to prevent same person being both
+                                        if (day.backup && (day.backup as User).$id === employee.$id) return false;
+                                        return true;
+                                      })
+                                      .map((employee) => (
+                                      <DropdownMenuItem
+                                        key={`primary-${employee.$id}`}
+                                        onClick={() => handleMobileAssignment(employee.$id, 'primary', day.date)}
+                                        className="text-xs"
+                                        disabled={creatingShift === `${day.date}-primary`}
+                                      >
+                                        {employee.firstName} {employee.lastName}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              ) : (
+                                <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed">
+                                  <div className="text-sm">No Primary Assigned</div>
+                                </div>
+                              )
+                            )}
+                          </div>
+
+                          {/* Backup Assignment Section */}
+                          <div className="space-y-2">
+                            <Badge variant="outline" className="text-xs px-2 py-1 h-6 border-green-400 text-green-700 bg-green-50 dark:bg-green-950/30 dark:text-green-300 font-medium">
+                              Backup
+                            </Badge>
+                            
+                            {day.backup ? (
+                              (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors border-2 border-transparent hover:border-green-300 dark:hover:border-green-700">
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <div className="font-medium text-sm">Backup On-Call</div>
+                                          <div className="text-sm">
+                                            {(day.backup as User).firstName} {(day.backup as User).lastName}
+                                          </div>
+                                        </div>
+                                        {creatingShift === `${day.date}-backup` && (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="center" className="w-48">
+                                    <DropdownMenuLabel className="text-xs">Change Backup</DropdownMenuLabel>
+                                    {deduplicateTeamMembers(teamMembers)
+                                      .filter((employee) => {
+                                        // Exclude manager/admin
+                                        if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
+                                        // Exclude current backup user
+                                        if (day.backup && (day.backup as User).$id === employee.$id) return false;
+                                        // Exclude current primary user to prevent same person being both
+                                        if (day.primary && (day.primary as User).$id === employee.$id) return false;
+                                        return true;
+                                      })
+                                      .map((employee) => (
+                                      <DropdownMenuItem
+                                        key={`backup-${employee.$id}`}
+                                        onClick={() => handleMobileAssignment(employee.$id, 'backup', day.date)}
+                                        className="text-xs"
+                                        disabled={creatingShift === `${day.date}-backup`}
+                                      >
+                                        {employee.firstName} {employee.lastName}
+                                      </DropdownMenuItem>
+                                    ))}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleMobileRemove('backup', day.date)}
+                                      className="text-xs text-red-600 dark:text-red-400"
+                                      disabled={creatingShift === `${day.date}-backup`}
+                                    >
+                                      Remove Backup
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              ) : (
+                                <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-sm">Backup On-Call</div>
+                                      <div className="text-sm">
+                                        {(day.backup as User).firstName} {(day.backup as User).lastName}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            ) : (
+                              (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button 
+                                      variant="ghost" 
+                                      className="w-full h-16 border-2 border-dashed border-green-300 dark:border-green-700 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950"
+                                      disabled={creatingShift === `${day.date}-backup`}
+                                    >
+                                      <div className="text-center">
+                                        {creatingShift === `${day.date}-backup` ? (
+                                          <>
+                                            <Loader2 className="h-5 w-5 mx-auto mb-1 animate-spin" />
+                                            <div className="text-sm font-medium">Assigning...</div>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Plus className="h-5 w-5 mx-auto mb-1" />
+                                            <div className="text-sm font-medium">Assign Backup</div>
+                                          </>
+                                        )}
+                                      </div>
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="center" className="w-48">
+                                    <DropdownMenuLabel className="text-xs">Assign Backup</DropdownMenuLabel>
+                                    {deduplicateTeamMembers(teamMembers)
+                                      .filter((employee) => {
+                                        // Exclude manager/admin
+                                        if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
+                                        // Exclude current primary user to prevent same person being both
+                                        if (day.primary && (day.primary as User).$id === employee.$id) return false;
+                                        return true;
+                                      })
+                                      .map((employee) => (
+                                      <DropdownMenuItem
+                                        key={`backup-${employee.$id}`}
+                                        onClick={() => handleMobileAssignment(employee.$id, 'backup', day.date)}
+                                        className="text-xs"
+                                        disabled={creatingShift === `${day.date}-backup`}
+                                      >
+                                        {employee.firstName} {employee.lastName}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              ) : (
+                                <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed">
+                                  <div className="text-sm">No Backup Assigned</div>
+                                </div>
+                              )
                             )}
                           </div>
                           
-                          {/* Mobile Shift Assignment */}
-                          <div className="p-3">
-                            <MobileShiftAssignment
-                              date={day.date}
-                              dayName={day.dayName}
-                              dayNumber={day.dayNumber}
-                              primaryUser={day.primary as User}
-                              backupUser={day.backup as User}
-                              teamMembers={deduplicateTeamMembers(teamMembers)}
-                              onAssignUser={(userId, role) => handleMobileAssignment(userId, role, day.date)}
-                              onRemoveUser={(role) => handleMobileRemove(role, day.date)}
-                              isCreating={creatingShift === `${day.date}-primary` || creatingShift === `${day.date}-backup`}
-                            />
-                            
-                            {/* Mobile Leave Indicator */}
-                            {day.employeesOnLeave && day.employeesOnLeave.length > 0 && (
-                              <div className="mt-3 pt-2 border-t">
-                                <Badge variant="secondary" className="text-xs">
-                                  {day.employeesOnLeave.length} on leave
-                                </Badge>
-                              </div>
-                            )}
-                          </div>
+                          {/* Mobile Leave Indicator */}
+                          {day.employeesOnLeave && day.employeesOnLeave.length > 0 && (
+                            <div className="mt-3 pt-2 border-t">
+                              <Badge variant="secondary" className="text-xs">
+                                {day.employeesOnLeave.length} on leave
+                              </Badge>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -1011,9 +1270,9 @@ export default function WeeklySchedule({
                   ))}
                 </div>
               </div>
-            ) : (
-              /* Desktop: Enhanced responsive grid view */
-              <div className="hidden md:block">
+              
+              {/* Desktop: Enhanced responsive grid view */}
+              <div className="hidden lg:block">
                 <div className={`grid grid-cols-7 divide-x divide-border border-t transition-all duration-300 ${
                   isAnimating ? (
                     animationDirection === 'left' ? 'animate-slide-left' : 
@@ -1337,7 +1596,7 @@ export default function WeeklySchedule({
                   })}
                 </div>
               </div>
-            )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1365,8 +1624,13 @@ export default function WeeklySchedule({
                       size="sm"
                       onClick={navigateToCurrentWeek}
                       className="text-xs px-3 py-1.5"
+                      disabled={loading || navigating}
                     >
-                      Today
+                      {navigating ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        "Today"
+                      )}
                     </Button>
                     <Button
                       variant="outline"
@@ -1375,7 +1639,7 @@ export default function WeeklySchedule({
                         setRefreshing(true);
                         fetchWeeklyData().finally(() => setRefreshing(false));
                       }}
-                      disabled={refreshing}
+                      disabled={refreshing || navigating}
                       className="px-2 py-1.5"
                     >
                       {refreshing ? (
@@ -1394,9 +1658,16 @@ export default function WeeklySchedule({
                     size="sm"
                     onClick={navigateToPreviousWeek}
                     className="flex items-center gap-1 px-3 text-xs"
+                    disabled={loading || navigating}
                   >
-                    <ChevronLeft className="h-4 w-4" />
-                    Prev
+                    {navigating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <ChevronLeft className="h-4 w-4" />
+                        Prev
+                      </>
+                    )}
                   </Button>
                   
                   <div className="flex-1 text-center px-2">
@@ -1420,9 +1691,16 @@ export default function WeeklySchedule({
                     size="sm"
                     onClick={navigateToNextWeek}
                     className="flex items-center gap-1 px-3 text-xs"
+                    disabled={loading || navigating}
                   >
-                    Next
-                    <ChevronRight className="h-4 w-4" />
+                    {navigating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
@@ -1439,8 +1717,13 @@ export default function WeeklySchedule({
                       variant="outline" 
                       size="sm"
                       onClick={navigateToCurrentWeek}
+                      disabled={loading || navigating}
                     >
-                      Today
+                      {navigating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Today"
+                      )}
                     </Button>
                     <Button
                       variant="outline"
@@ -1449,7 +1732,7 @@ export default function WeeklySchedule({
                         setRefreshing(true);
                         fetchWeeklyData().finally(() => setRefreshing(false));
                       }}
-                      disabled={refreshing}
+                      disabled={refreshing || navigating}
                     >
                       {refreshing ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -1467,9 +1750,16 @@ export default function WeeklySchedule({
                     size="sm"
                     onClick={navigateToPreviousWeek}
                     className="flex items-center gap-1"
+                    disabled={loading || navigating}
                   >
-                    <ChevronLeft className="h-4 w-4" />
-                    Previous Week
+                    {navigating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <ChevronLeft className="h-4 w-4" />
+                        Previous Week
+                      </>
+                    )}
                   </Button>
                   
                   <div className="flex flex-col items-center">
@@ -1494,9 +1784,16 @@ export default function WeeklySchedule({
                     size="sm"
                     onClick={navigateToNextWeek}
                     className="flex items-center gap-1"
+                    disabled={loading || navigating}
                   >
-                    Next Week
-                    <ChevronRight className="h-4 w-4" />
+                    {navigating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        Next Week
+                        <ChevronRight className="h-4 w-4" />
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
@@ -1544,8 +1841,17 @@ export default function WeeklySchedule({
           {/* Weekly Schedule */}
           <Card className={className}>
             <CardContent className="p-0">
-              {/* Mobile and Tablet: Enhanced Touch-friendly assignment view (up to lg breakpoint) */}
-              <div className="lg:hidden">
+              {/* Animation wrapper for slide effects */}
+              <div className={`transition-all duration-300 ease-in-out ${
+                isAnimating ? 
+                  animationDirection === 'left' ? 'transform -translate-x-full opacity-0' :
+                  animationDirection === 'right' ? 'transform translate-x-full opacity-0' :
+                  'transform scale-95 opacity-0' 
+                : 'transform translate-x-0 opacity-100'
+              }`}>
+                
+                {/* Mobile and Tablet: Enhanced Touch-friendly assignment view (up to lg breakpoint) */}
+                <div className="lg:hidden">
                 {/* Mobile Day Indicator */}
                 <div className="px-4 py-3 border-b bg-muted/30">
                   <p className="text-sm text-muted-foreground text-center">
@@ -1856,21 +2162,28 @@ export default function WeeklySchedule({
                                       </div>
                                     </div>
                                     {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                      <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                          <Button 
-                                            variant="ghost" 
-                                            size="sm" 
-                                            className="h-8 w-8 p-0 hover:bg-blue-200 dark:hover:bg-blue-800"
-                                            disabled={creatingShift === `${day.date}-primary`}
-                                          >
-                                            {creatingShift === `${day.date}-primary` ? (
-                                              <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                              <Plus className="h-4 w-4" />
-                                            )}
-                                          </Button>
-                                        </DropdownMenuTrigger>
+                                      <div className="flex items-center gap-2">
+                                        <Badge 
+                                          variant="secondary" 
+                                          className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                        >
+                                          Click to change
+                                        </Badge>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button 
+                                              variant="ghost" 
+                                              size="sm" 
+                                              className="h-8 w-8 p-0 hover:bg-blue-200 dark:hover:bg-blue-800"
+                                              disabled={creatingShift === `${day.date}-primary`}
+                                            >
+                                              {creatingShift === `${day.date}-primary` ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                              ) : (
+                                                <Plus className="h-4 w-4" />
+                                              )}
+                                            </Button>
+                                          </DropdownMenuTrigger>
                                         <DropdownMenuContent align="center" className="w-48">
                                           <DropdownMenuLabel className="text-xs">Change Primary</DropdownMenuLabel>
                                           {deduplicateTeamMembers(teamMembers)
@@ -1902,7 +2215,8 @@ export default function WeeklySchedule({
                                             Remove Primary
                                           </DropdownMenuItem>
                                         </DropdownMenuContent>
-                                      </DropdownMenu>
+                                        </DropdownMenu>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
@@ -1915,7 +2229,7 @@ export default function WeeklySchedule({
                                         className="w-full h-16 border-2 border-dashed border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
                                         disabled={creatingShift === `${day.date}-primary`}
                                       >
-                                        <div className="text-center">
+                                        <div className="text-center space-y-2">
                                           {creatingShift === `${day.date}-primary` ? (
                                             <>
                                               <Loader2 className="h-5 w-5 mx-auto mb-1 animate-spin" />
@@ -1925,6 +2239,12 @@ export default function WeeklySchedule({
                                             <>
                                               <Plus className="h-5 w-5 mx-auto mb-1" />
                                               <div className="text-sm font-medium">Assign Primary</div>
+                                              <Badge 
+                                                variant="secondary" 
+                                                className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                              >
+                                                Click me
+                                              </Badge>
                                             </>
                                           )}
                                         </div>
@@ -1973,12 +2293,19 @@ export default function WeeklySchedule({
                                           </div>
                                         </div>
                                         {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                          <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                              <Button 
-                                                variant="ghost" 
-                                                size="sm" 
-                                                className="h-8 w-8 p-0 hover:bg-blue-200 dark:hover:bg-blue-800"
+                                          <div className="flex items-center gap-2">
+                                            <Badge 
+                                              variant="secondary" 
+                                              className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                            >
+                                              Tap to change
+                                            </Badge>
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <Button 
+                                                  variant="ghost" 
+                                                  size="sm" 
+                                                  className="h-8 w-8 p-0 hover:bg-blue-200 dark:hover:bg-blue-800"
                                                 disabled={creatingShift === `${day.date}-primary`}
                                               >
                                                 {creatingShift === `${day.date}-primary` ? (
@@ -2019,7 +2346,8 @@ export default function WeeklySchedule({
                                                 Remove Primary
                                               </DropdownMenuItem>
                                             </DropdownMenuContent>
-                                          </DropdownMenu>
+                                            </DropdownMenu>
+                                          </div>
                                         )}
                                       </div>
                                     </div>
@@ -2042,6 +2370,12 @@ export default function WeeklySchedule({
                                                 <>
                                                   <Plus className="h-5 w-5 mx-auto mb-1" />
                                                   <div className="text-sm font-medium">Assign Primary</div>
+                                                  <Badge 
+                                                    variant="secondary" 
+                                                    className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                                  >
+                                                    Tap me
+                                                  </Badge>
                                                 </>
                                               )}
                                             </div>
@@ -2108,21 +2442,28 @@ export default function WeeklySchedule({
                                       </div>
                                     </div>
                                     {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                      <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                          <Button 
-                                            variant="ghost" 
-                                            size="sm" 
-                                            className="h-8 w-8 p-0 hover:bg-green-200 dark:hover:bg-green-800"
-                                            disabled={creatingShift === `${day.date}-backup`}
-                                          >
-                                            {creatingShift === `${day.date}-backup` ? (
-                                              <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                              <Plus className="h-4 w-4" />
-                                            )}
-                                          </Button>
-                                        </DropdownMenuTrigger>
+                                      <div className="flex items-center gap-2">
+                                        <Badge 
+                                          variant="secondary" 
+                                          className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                        >
+                                          Click me to change
+                                        </Badge>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button 
+                                              variant="ghost" 
+                                              size="sm" 
+                                              className="h-8 w-8 p-0 hover:bg-green-200 dark:hover:bg-green-800"
+                                              disabled={creatingShift === `${day.date}-backup`}
+                                            >
+                                              {creatingShift === `${day.date}-backup` ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                              ) : (
+                                                <Plus className="h-4 w-4" />
+                                              )}
+                                            </Button>
+                                          </DropdownMenuTrigger>
                                         <DropdownMenuContent align="center" className="w-48">
                                           <DropdownMenuLabel className="text-xs">Change Backup</DropdownMenuLabel>
                                           {deduplicateTeamMembers(teamMembers)
@@ -2154,7 +2495,8 @@ export default function WeeklySchedule({
                                             Remove Backup
                                           </DropdownMenuItem>
                                         </DropdownMenuContent>
-                                      </DropdownMenu>
+                                        </DropdownMenu>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
@@ -2225,12 +2567,19 @@ export default function WeeklySchedule({
                                           </div>
                                         </div>
                                         {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                          <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                              <Button 
-                                                variant="ghost" 
-                                                size="sm" 
-                                                className="h-8 w-8 p-0 hover:bg-green-200 dark:hover:bg-green-800"
+                                          <div className="flex items-center gap-2">
+                                            <Badge 
+                                              variant="secondary" 
+                                              className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                            >
+                                              Tap to change
+                                            </Badge>
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <Button 
+                                                  variant="ghost" 
+                                                  size="sm" 
+                                                  className="h-8 w-8 p-0 hover:bg-green-200 dark:hover:bg-green-800"
                                                 disabled={creatingShift === `${day.date}-backup`}
                                               >
                                                 {creatingShift === `${day.date}-backup` ? (
@@ -2271,7 +2620,8 @@ export default function WeeklySchedule({
                                                 Remove Backup
                                               </DropdownMenuItem>
                                             </DropdownMenuContent>
-                                          </DropdownMenu>
+                                            </DropdownMenu>
+                                          </div>
                                         )}
                                       </div>
                                     </div>
@@ -2294,6 +2644,12 @@ export default function WeeklySchedule({
                                                 <>
                                                   <Plus className="h-5 w-5 mx-auto mb-1" />
                                                   <div className="text-sm font-medium">Assign Backup</div>
+                                                  <Badge 
+                                                    variant="secondary" 
+                                                    className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 animate-pulse border border-yellow-300 dark:border-yellow-700"
+                                                  >
+                                                    Tap me
+                                                  </Badge>
                                                 </>
                                               )}
                                             </div>
@@ -2356,6 +2712,8 @@ export default function WeeklySchedule({
                     })}
                   </div>
                 </div>
+                
+              </div> {/* End animation wrapper */}
             </CardContent>
           </Card>
         </div>
