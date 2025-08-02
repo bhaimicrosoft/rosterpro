@@ -562,23 +562,42 @@ export default function SwapsPage() {
 
       // Don't manually update state - let real-time subscription handle it
 
-      // Send notification to requester
+      // Send notification to requester (only if shift date is in the future)
       try {
-        await notificationService.createSwapResponseNotification(
-          swapRequest.requesterUserId,
-          'APPROVED',
-          getShiftDateSync(swapRequest.targetShiftId),
-          swapId,
-          `${user?.firstName || ''} ${user?.lastName || ''}`
-        );
+        const targetShiftDate = getShiftDateSync(swapRequest.targetShiftId);
+        const shiftDate = new Date(targetShiftDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Reset to start of day
         
-        toast({
-          title: "Swap Request Accepted",
-          description: "The requester has been notified of your acceptance.",
-          variant: "success",
-        });
+        // Only send notification if shift date is today or in the future
+        if (shiftDate >= today) {
+          await notificationService.createSwapResponseNotification(
+            swapRequest.requesterUserId,
+            'APPROVED',
+            targetShiftDate,
+            swapId,
+            `${user?.firstName || ''} ${user?.lastName || ''}`
+          );
+          
+          toast({
+            title: "Swap Request Accepted",
+            description: "The requester has been notified of your acceptance.",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "Swap Request Accepted",
+            description: "Swap completed (no notification sent for past dates).",
+            variant: "success",
+          });
+        }
       } catch {
         // Notification error - continue silently
+        toast({
+          title: "Swap Request Accepted",
+          description: "Swap accepted but notification failed.",
+          variant: "success",
+        });
       }
     } catch {
       toast({
@@ -613,23 +632,42 @@ export default function SwapsPage() {
 
       // Don't manually update state - let real-time subscription handle it
 
-      // Send notification to requester
+      // Send notification to requester (only if shift date is in the future)
       try {
-        await notificationService.createSwapResponseNotification(
-          swapRequest.requesterUserId,
-          'REJECTED',
-          getShiftDateSync(swapRequest.targetShiftId),
-          swapId,
-          `${user?.firstName || ''} ${user?.lastName || ''}`
-        );
+        const targetShiftDate = getShiftDateSync(swapRequest.targetShiftId);
+        const shiftDate = new Date(targetShiftDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Reset to start of day
         
-        toast({
-          title: "Swap Request Rejected",
-          description: "The requester has been notified of your decision.",
-          variant: "success",
-        });
+        // Only send notification if shift date is today or in the future
+        if (shiftDate >= today) {
+          await notificationService.createSwapResponseNotification(
+            swapRequest.requesterUserId,
+            'REJECTED',
+            targetShiftDate,
+            swapId,
+            `${user?.firstName || ''} ${user?.lastName || ''}`
+          );
+          
+          toast({
+            title: "Swap Request Rejected",
+            description: "The requester has been notified of your decision.",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "Swap Request Rejected",
+            description: "Swap rejected (no notification sent for past dates).",
+            variant: "success",
+          });
+        }
       } catch {
         // Notification error - continue silently
+        toast({
+          title: "Swap Request Rejected",
+          description: "Swap rejected but notification failed.",
+          variant: "success",
+        });
       }
     } catch {
       toast({

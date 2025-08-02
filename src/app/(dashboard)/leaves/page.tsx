@@ -101,7 +101,16 @@ export default function LeavesPage() {
         users = await userService.getAllUsers();
       }
 
-      setLeaveRequests(requests);
+      setLeaveRequests(currentRequests => {
+        // Merge with existing data to prevent duplicates from subscriptions
+        const mergeArrays = <T extends { $id: string }>(existing: T[], incoming: T[]): T[] => {
+          const existingIds = new Set(existing.map(item => item.$id));
+          const newItems = incoming.filter(item => !existingIds.has(item.$id));
+          return [...existing, ...newItems];
+        };
+
+        return mergeArrays(currentRequests, requests);
+      });
       setTeamMembers(users);
       
     } catch {
@@ -164,9 +173,9 @@ export default function LeavesPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Check if start date is in the past
-    if (startDate < today) {
-      return 'Start date cannot be in the past.';
+    // Check if start date is in the past (only for non-sick leave types)
+    if (newRequest.type !== 'SICK' && startDate < today) {
+      return 'Start date cannot be in the past for this leave type.';
     }
 
     // Check if end date is before start date
@@ -244,6 +253,13 @@ export default function LeavesPage() {
                     $createdAt: payload.$createdAt || new Date().toISOString(),
                     $updatedAt: payload.$updatedAt || new Date().toISOString()
                   };
+                  
+                  // Check if the request already exists to prevent duplicates
+                  const existingRequest = filteredRequests.find(lr => lr.$id === newRequest.$id);
+                  if (existingRequest) {
+                    // Update existing request instead of adding duplicate
+                    return filteredRequests.map(lr => lr.$id === newRequest.$id ? newRequest : lr);
+                  }
                   
                   return [...filteredRequests, newRequest];
                 }
@@ -414,7 +430,15 @@ export default function LeavesPage() {
         // Don't fail the leave request if notification fails
       }
 
-      setLeaveRequests(prev => [request, ...prev]);
+      setLeaveRequests(prev => {
+        // Check if the request already exists to prevent duplicates
+        const existingRequest = prev.find(lr => lr.$id === request.$id);
+        if (existingRequest) {
+          // Update existing request instead of adding duplicate
+          return prev.map(lr => lr.$id === request.$id ? request : lr);
+        }
+        return [request, ...prev];
+      });
       setNewRequest({
         startDate: '',
         endDate: '',
@@ -428,7 +452,7 @@ export default function LeavesPage() {
         title: "Leave Request Submitted",
         description: "Your leave request has been submitted for approval.",
       });
-    } catch (error) {
+    } catch {
 
       toast({
         title: "Error",
@@ -971,8 +995,13 @@ export default function LeavesPage() {
                     value={newRequest.startDate}
                     onChange={(e) => setNewRequest(prev => ({ ...prev, startDate: e.target.value }))}
                     className="mt-1"
-                    min={new Date().toISOString().split('T')[0]}
+                    min={newRequest.type === 'SICK' ? undefined : new Date().toISOString().split('T')[0]}
                   />
+                  {newRequest.type === 'SICK' && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Sick leave can be reported retroactively
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="endDate" className="text-sm font-medium">End Date</Label>
@@ -982,7 +1011,7 @@ export default function LeavesPage() {
                     value={newRequest.endDate}
                     onChange={(e) => setNewRequest(prev => ({ ...prev, endDate: e.target.value }))}
                     className="mt-1"
-                    min={newRequest.startDate || new Date().toISOString().split('T')[0]}
+                    min={newRequest.startDate || (newRequest.type === 'SICK' ? undefined : new Date().toISOString().split('T')[0])}
                   />
                 </div>
               </div>
@@ -1020,6 +1049,14 @@ export default function LeavesPage() {
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                {newRequest.type === 'SICK' && (
+                  <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
+                    </svg>
+                    Sick leave can be reported for past dates
+                  </p>
+                )}
               </div>
 
               {/* Show requested days and validation */}

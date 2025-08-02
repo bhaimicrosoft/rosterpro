@@ -173,26 +173,34 @@ export const shiftService = {
         }
       );
 
-      // Create notification for shift assignment if user is assigned
+      // Create notification for shift assignment if user is assigned (only for future dates)
       if (shiftData.userId) {
         try {
-          const { notificationService } = await import('./notification-service');
-          const assignedUser = await userService.getUserById(shiftData.userId);
+          // Check if the shift date is in the future
+          const shiftDate = new Date(shiftData.date);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0); // Reset to start of day
           
-          if (assignedUser) {
-            const shiftDate = new Date(shiftData.date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric',
-              year: 'numeric'
-            });
+          // Only send notification if shift date is today or in the future
+          if (shiftDate >= today) {
+            const { notificationService } = await import('./notification-service');
+            const assignedUser = await userService.getUserById(shiftData.userId);
+            
+            if (assignedUser) {
+              const formattedShiftDate = shiftDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+              });
 
-            await notificationService.createShiftAssignmentNotification(
-              shiftData.userId,
-              shiftDate,
-              shiftData.onCallRole,
-              shift.$id,
-              assignedBy
-            );
+              await notificationService.createShiftAssignmentNotification(
+                shiftData.userId,
+                formattedShiftDate,
+                shiftData.onCallRole,
+                shift.$id,
+                assignedBy
+              );
+            }
           }
         } catch (notificationError) {
           console.warn('Failed to create shift assignment notification:', notificationError);
@@ -293,26 +301,34 @@ export const shiftService = {
         cleanedUpdates
       );
 
-      // Create notification for shift assignment change if userId is being updated and it's different
+      // Create notification for shift assignment change if userId is being updated and it's different (only for future dates)
       if (updates.userId && originalShift && updates.userId !== originalShift.userId) {
         try {
-          const { notificationService } = await import('./notification-service');
-          const assignedUser = await userService.getUserById(updates.userId);
+          // Check if the shift date is in the future
+          const shiftDate = new Date(originalShift.date);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0); // Reset to start of day
           
-          if (assignedUser) {
-            const shiftDate = new Date(originalShift.date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric',
-              year: 'numeric'
-            });
+          // Only send notification if shift date is today or in the future
+          if (shiftDate >= today) {
+            const { notificationService } = await import('./notification-service');
+            const assignedUser = await userService.getUserById(updates.userId);
+            
+            if (assignedUser) {
+              const formattedShiftDate = shiftDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+              });
 
-            await notificationService.createShiftAssignmentNotification(
-              updates.userId,
-              shiftDate,
-              originalShift.onCallRole,
-              shift.$id,
-              assignedBy ? `${assignedBy} (replacement)` : '(replacement)'
-            );
+              await notificationService.createShiftAssignmentNotification(
+                updates.userId,
+                formattedShiftDate,
+                originalShift.onCallRole,
+                shift.$id,
+                assignedBy ? `${assignedBy} (replacement)` : '(replacement)'
+              );
+            }
           }
         } catch (notificationError) {
           console.warn('Failed to create shift replacement notification:', notificationError);
@@ -714,7 +730,7 @@ export const swapService = {
         cleanSwapData
       );
 
-      // Create notification for target user if there's a specific target
+      // Create notification for target user if there's a specific target (only for future dates)
       if (swapData.targetUserId) {
         try {
           // Get shift details and user names for better notification
@@ -726,27 +742,36 @@ export const swapService = {
           ]);
 
           if (requesterShift && targetShift && requesterUser && targetUser) {
-            const { notificationService } = await import('./notification-service');
+            // Check if both shift dates are in the future
+            const requesterShiftDate = new Date(requesterShift.date);
+            const targetShiftDate = new Date(targetShift.date);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Reset to start of day
             
-            // Format dates for notification
-            const requesterDate = new Date(requesterShift.date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric',
-              year: 'numeric'
-            });
-            const targetDate = new Date(targetShift.date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric',
-              year: 'numeric'
-            });
+            // Only send notification if both shift dates are today or in the future
+            if (requesterShiftDate >= today && targetShiftDate >= today) {
+              const { notificationService } = await import('./notification-service');
+              
+              // Format dates for notification
+              const requesterDate = requesterShiftDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+              });
+              const targetDate = targetShiftDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+              });
 
-            await notificationService.createSwapRequestNotification(
-              swapData.targetUserId,
-              `${requesterUser.firstName} ${requesterUser.lastName}`,
-              requesterDate,
-              targetDate,
-              swap.$id
-            );
+              await notificationService.createSwapRequestNotification(
+                swapData.targetUserId,
+                `${requesterUser.firstName} ${requesterUser.lastName}`,
+                requesterDate,
+                targetDate,
+                swap.$id
+              );
+            }
           }
         } catch {
           // Don't fail the swap creation if notification fails

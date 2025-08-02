@@ -11,6 +11,13 @@ function castDocuments<T>(docs: unknown[]): T[] {
   return docs.map(doc => castDocument<T>(doc));
 }
 
+/**
+ * Notification Service
+ * 
+ * Note: Shift assignment and swap notifications are now filtered to only send
+ * notifications for shifts that are scheduled for today or in the future.
+ * This prevents unnecessary notifications for completed/past shifts.
+ */
 export const notificationService = {
   // Create a new notification
   async createNotification(notificationData: Omit<Notification, '$id' | '$createdAt'>) {

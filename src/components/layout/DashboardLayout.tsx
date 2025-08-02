@@ -48,6 +48,7 @@ import {
   ChevronDown,
   CheckCheck,
   AlertCircle,
+  BarChart3,
 } from 'lucide-react';
 import { notificationService } from '@/lib/appwrite/database';
 import { Notification } from '@/types';
@@ -240,6 +241,12 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       roles: ['admin', 'manager', 'employee', 'ADMIN', 'MANAGER', 'EMPLOYEE'],
     },
     {
+      title: 'Analytics',
+      icon: BarChart3,
+      href: '/analytics',
+      roles: ['admin', 'manager', 'ADMIN', 'MANAGER'],
+    },
+    {
       title: 'Team Management',
       icon: Users,
       href: '/team',
@@ -251,10 +258,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     <nav className="space-y-2">
       {/* Always show menu items, but handle access control at page level */}
       {menuItems.map((item) => {
-        // Hide team management for non-managers  
-        if (item.title === 'Team Management' && user?.role !== 'MANAGER' && user?.role !== 'ADMIN') {
+        // Hide team management and analytics for non-managers  
+        if ((item.title === 'Team Management' || item.title === 'Analytics') && user?.role !== 'MANAGER' && user?.role !== 'ADMIN') {
           return null;
         }
+
+        // Special styling for Analytics button
+        const isAnalytics = item.title === 'Analytics';
         
         if (collapsed) {
           return (
@@ -264,14 +274,23 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="w-full h-11 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 hover:text-blue-700 dark:hover:from-blue-900/20 dark:hover:to-indigo-900/20 dark:hover:text-blue-300 transition-all duration-200"
+                    className={`w-full h-11 transition-all duration-300 ${
+                      isAnalytics
+                        ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105 relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-purple-400 before:to-pink-400 before:opacity-0 hover:before:opacity-20 before:transition-opacity'
+                        : 'hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 hover:text-blue-700 dark:hover:from-blue-900/20 dark:hover:to-indigo-900/20 dark:hover:text-blue-300'
+                    }`}
                     onClick={() => router.push(item.href)}
                   >
-                    <item.icon className="h-4 w-4" />
+                    <item.icon className={`h-4 w-4 ${isAnalytics ? 'relative z-10' : ''}`} />
+                    {isAnalytics && (
+                      <Badge className="absolute -top-1 -right-1 bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-xs font-bold px-1 py-0.5 animate-pulse shadow-lg z-10">
+                        NEW
+                      </Badge>
+                    )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>{item.title}</p>
+                  <p className={isAnalytics ? 'font-semibold text-purple-600' : ''}>{item.title}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -282,11 +301,22 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           <Button
             key={item.href}
             variant="ghost"
-            className="w-full justify-start gap-3 h-11 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 hover:text-blue-700 dark:hover:from-blue-900/20 dark:hover:to-indigo-900/20 dark:hover:text-blue-300 transition-all duration-200"
+            className={`w-full justify-start gap-3 h-11 transition-all duration-300 ${
+              isAnalytics
+                ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white shadow-lg hover:shadow-xl transform hover:scale-105 relative overflow-hidden before:absolute before:inset-0 before:bg-gradient-to-r before:from-purple-400 before:to-pink-400 before:opacity-0 hover:before:opacity-20 before:transition-opacity'
+                : 'hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 hover:text-blue-700 dark:hover:from-blue-900/20 dark:hover:to-indigo-900/20 dark:hover:text-blue-300'
+            }`}
             onClick={() => router.push(item.href)}
           >
-            <item.icon className="h-4 w-4" />
-            {item.title}
+            <item.icon className={`h-4 w-4 ${isAnalytics ? 'relative z-10' : ''}`} />
+            <span className={`${isAnalytics ? 'relative z-10 font-semibold' : ''}`}>
+              {item.title}
+            </span>
+            {isAnalytics && (
+              <Badge className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-black text-xs font-bold px-2 py-1 animate-pulse shadow-lg">
+                NEW
+              </Badge>
+            )}
           </Button>
         );
       })}
