@@ -27,6 +27,7 @@ export default function SwapsPage() {
   const [myShifts, setMyShifts] = useState<Shift[]>([]);
   const [targetShifts, setTargetShifts] = useState<Shift[]>([]);
   const [allAvailableShifts, setAllAvailableShifts] = useState<Shift[]>([]); // Store all shifts for filtering
+  const [allShiftsCache, setAllShiftsCache] = useState<Shift[]>([]); // Cache all shifts we've ever seen
   const [teamMembers, setTeamMembers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -89,6 +90,28 @@ export default function SwapsPage() {
       setMyShifts(shifts);
       setAllAvailableShifts(allShifts.filter(shift => shift.userId !== user.$id)); // Store all available shifts
       setTargetShifts(allShifts.filter(shift => shift.userId !== user.$id)); // Initially show all shifts
+      
+      // Cache all shifts we've seen for reliable lookup later
+      setAllShiftsCache(prevCache => {
+        const allShiftsData = [...shifts, ...allShifts];
+        const combinedShifts = [...prevCache];
+        
+        // Add new shifts to cache if not already present
+        allShiftsData.forEach(shift => {
+          if (!combinedShifts.find(s => s.$id === shift.$id)) {
+            combinedShifts.push(shift);
+          } else {
+            // Update existing shift with latest data
+            const index = combinedShifts.findIndex(s => s.$id === shift.$id);
+            if (index >= 0) {
+              combinedShifts[index] = shift;
+            }
+          }
+        });
+        
+        return combinedShifts;
+      });
+      
       // Filter team members to exclude current user, managers, and admins
       const employeeMembers = users.filter(u => 
         u.$id !== user.$id && 
@@ -252,8 +275,68 @@ export default function SwapsPage() {
           
           
           try {
+            // Handle shift updates (when shifts are swapped)
+            if (events.some((e: string) => e.includes('shifts'))) {
+              if (hasUpdateEvent) {
+                // Update the shift in all relevant arrays
+                const updatedShift: Shift = {
+                  $id: payload.$id,
+                  userId: payload.userId,
+                  date: payload.date,
+                  startTime: payload.startTime,
+                  endTime: payload.endTime,
+                  type: payload.type,
+                  onCallRole: payload.onCallRole,
+                  status: payload.status,
+                  createdAt: payload.createdAt,
+                  updatedAt: payload.updatedAt,
+                  $createdAt: payload.$createdAt,
+                  $updatedAt: payload.$updatedAt
+                };
+
+                // Update myShifts array - update the shift regardless of userId 
+                setMyShifts(prevShifts => {
+                  const filtered = prevShifts.filter(s => s.$id !== payload.$id);
+                  // Check if this shift should be in myShifts based on current or new assignment
+                  const originalShift = prevShifts.find(s => s.$id === payload.$id);
+                  if (originalShift || payload.userId === user.$id) {
+                    return [...filtered, updatedShift];
+                  }
+                  return filtered;
+                });
+
+                // Update targetShifts array - update the shift regardless of userId
+                setTargetShifts(prevShifts => {
+                  const filtered = prevShifts.filter(s => s.$id !== payload.$id);
+                  // Check if this shift should be in targetShifts
+                  const originalShift = prevShifts.find(s => s.$id === payload.$id);
+                  if (originalShift) {
+                    return [...filtered, updatedShift];
+                  }
+                  return filtered;
+                });
+
+                // Update allAvailableShifts array - update the shift regardless of userId
+                setAllAvailableShifts(prevShifts => {
+                  const filtered = prevShifts.filter(s => s.$id !== payload.$id);
+                  // Check if this shift should be in allAvailableShifts
+                  const originalShift = prevShifts.find(s => s.$id === payload.$id);
+                  if (originalShift) {
+                    return [...filtered, updatedShift];
+                  }
+                  return filtered;
+                });
+
+                // Update the all shifts cache - always update regardless of userId
+                setAllShiftsCache(prevCache => {
+                  const filtered = prevCache.filter(s => s.$id !== payload.$id);
+                  return [...filtered, updatedShift];
+                });
+              }
+            }
+            
             // Handle swap request updates
-            if (events.some((e: string) => e.includes('swap'))) {
+            else if (events.some((e: string) => e.includes('swap'))) {
               if (hasCreateEvent || hasUpdateEvent) {
                 // For CREATE/UPDATE: Update swap requests directly
                 setSwapRequests(prevRequests => {
@@ -335,6 +418,7 @@ export default function SwapsPage() {
               title: "Swap Requests Updated", 
               description: `${collection} ${eventTypeText} instantly`,
               duration: 2000,
+              variant: "info",
             });
             
           } catch {
@@ -352,7 +436,7 @@ export default function SwapsPage() {
       
       unsubscribe();
     };
-  }, [user, toast, silentRefreshSwapData]);
+  }, [user, toast, silentRefreshSwapData, newSwapRequest.targetUserId]);
 
   const handleSubmitSwapRequest = async () => {
     if (!user || !newSwapRequest.myShiftId || !newSwapRequest.reason) return;
@@ -396,9 +480,14 @@ export default function SwapsPage() {
   };
 
   // Helper to get shift date by ID
-  const getShiftDate = useCallback((shiftId: string) => {
-    // Try to find the shift in myShifts first
-    let shift = myShifts.find(s => s.$id === shiftId);
+  const getShiftDateSync = useCallback((shiftId: string) => {
+    // Try to find the shift in the cache first (most reliable)
+    let shift = allShiftsCache.find(s => s.$id === shiftId);
+    
+    // If not found in cache, try to find the shift in myShifts
+    if (!shift) {
+      shift = myShifts.find(s => s.$id === shiftId);
+    }
     
     // If not found, try targetShifts
     if (!shift) {
@@ -419,7 +508,34 @@ export default function SwapsPage() {
     }
     
     return shiftId; // Fallback to showing the ID if date can't be found
-  }, [myShifts, targetShifts, allAvailableShifts]);
+  }, [allShiftsCache, myShifts, targetShifts, allAvailableShifts]);
+
+  // Helper to get user name by ID
+  const getUserName = useCallback((userId: string) => {
+    const foundUser = teamMembers.find(member => member.$id === userId);
+    return foundUser ? `${foundUser.firstName} ${foundUser.lastName}` : 'Unknown User';
+  }, [teamMembers]);
+
+  // Helper to get shift role (PRIMARY/BACKUP) by shift ID
+  const getShiftRole = useCallback((shiftId: string) => {
+    // Try to find the shift in the cache first (most reliable)
+    let shift = allShiftsCache.find(s => s.$id === shiftId);
+    
+    // If not found in cache, try to find the shift in local arrays
+    if (!shift) {
+      shift = myShifts.find(s => s.$id === shiftId);
+    }
+    
+    if (!shift) {
+      shift = targetShifts.find(s => s.$id === shiftId);
+    }
+    
+    if (!shift) {
+      shift = allAvailableShifts.find(s => s.$id === shiftId);
+    }
+    
+    return shift?.onCallRole || '';
+  }, [allShiftsCache, myShifts, targetShifts, allAvailableShifts]);
 
   // Employee response handlers
   const handleEmployeeAcceptSwap = useCallback(async (swapId: string, notes = '') => {
@@ -451,7 +567,7 @@ export default function SwapsPage() {
         await notificationService.createSwapResponseNotification(
           swapRequest.requesterUserId,
           'APPROVED',
-          getShiftDate(swapRequest.targetShiftId),
+          getShiftDateSync(swapRequest.targetShiftId),
           swapId,
           `${user?.firstName || ''} ${user?.lastName || ''}`
         );
@@ -459,6 +575,7 @@ export default function SwapsPage() {
         toast({
           title: "Swap Request Accepted",
           description: "The requester has been notified of your acceptance.",
+          variant: "success",
         });
       } catch {
         // Notification error - continue silently
@@ -470,7 +587,7 @@ export default function SwapsPage() {
         variant: "destructive"
       });
     }
-  }, [user, incomingSwapRequests, getShiftDate, toast, selectedRequestId, approverComment]);
+  }, [user, incomingSwapRequests, getShiftDateSync, toast, selectedRequestId, approverComment]);
 
   const handleEmployeeRejectSwap = useCallback(async (swapId: string, notes = '') => {
     if (!user || user.role !== 'EMPLOYEE') return;
@@ -501,7 +618,7 @@ export default function SwapsPage() {
         await notificationService.createSwapResponseNotification(
           swapRequest.requesterUserId,
           'REJECTED',
-          getShiftDate(swapRequest.targetShiftId),
+          getShiftDateSync(swapRequest.targetShiftId),
           swapId,
           `${user?.firstName || ''} ${user?.lastName || ''}`
         );
@@ -509,6 +626,7 @@ export default function SwapsPage() {
         toast({
           title: "Swap Request Rejected",
           description: "The requester has been notified of your decision.",
+          variant: "success",
         });
       } catch {
         // Notification error - continue silently
@@ -520,12 +638,7 @@ export default function SwapsPage() {
         variant: "destructive"
       });
     }
-  }, [user, incomingSwapRequests, getShiftDate, toast, selectedRequestId, approverComment]);
-
-  const getUserName = (userId: string) => {
-    const foundUser = teamMembers.find(member => member.$id === userId);
-    return foundUser ? `${foundUser.firstName} ${foundUser.lastName}` : 'Unknown User';
-  };
+  }, [user, incomingSwapRequests, getShiftDateSync, toast, selectedRequestId, approverComment]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -540,7 +653,7 @@ export default function SwapsPage() {
     const csvContent = [
       'Requester,Request Date,Target,Reason,Status,My Shift,Target Shift',
       ...filteredRequests.map(req => 
-        `"${user?.role === 'EMPLOYEE' ? 'Me' : getUserName(req.requesterUserId)}","${req.$createdAt}","${req.targetUserId ? getUserName(req.targetUserId) : 'Open'}","${req.reason}","${req.status}","${getShiftDate(req.requesterShiftId)}","${req.targetShiftId ? getShiftDate(req.targetShiftId) : 'N/A'}"`
+        `"${user?.role === 'EMPLOYEE' ? 'Me' : getUserName(req.requesterUserId)}","${req.$createdAt}","${req.targetUserId ? getUserName(req.targetUserId) : 'Open'}","${req.reason}","${req.status}","${getShiftDateSync(req.requesterShiftId)}","${req.targetShiftId ? getShiftDateSync(req.targetShiftId) : 'N/A'}"`
       )
     ].join('\n');
     
@@ -765,14 +878,17 @@ export default function SwapsPage() {
                             <div className="text-sm text-muted-foreground">
                               <span className="font-medium text-blue-700 dark:text-blue-300">Your Shift:</span> 
                               <span className="bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded ml-1">
-                                {getShiftDate(request.requesterShiftId)}
+                                {getShiftDateSync(request.requesterShiftId)} - {getShiftRole(request.requesterShiftId)}
                               </span>
                               {request.targetShiftId && (
                                 <>
                                   <span className="mx-2">→</span>
                                   <span className="font-medium text-green-700 dark:text-green-300">Their Shift:</span>
                                   <span className="bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded ml-1">
-                                    {getShiftDate(request.targetShiftId)}
+                                    {getShiftDateSync(request.targetShiftId)} - {getShiftRole(request.targetShiftId)} 
+                                    {request.targetUserId && (
+                                      <span className="text-xs"> ({getUserName(request.targetUserId)})</span>
+                                    )}
                                   </span>
                                 </>
                               )}
@@ -780,6 +896,30 @@ export default function SwapsPage() {
                             <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded">
                               <span className="font-medium">Reason:</span> {request.reason}
                             </p>
+                            
+                            {/* Show updated shifts after swap for approved requests */}
+                            {request.status === 'APPROVED' && request.targetShiftId && (
+                              <div className="mt-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                                <h4 className="text-sm font-semibold text-green-800 dark:text-green-200 mb-2 flex items-center">
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  After Swap - Updated Assignments
+                                </h4>
+                                <div className="text-sm text-muted-foreground space-y-1">
+                                  <div>
+                                    <span className="font-medium text-blue-700 dark:text-blue-300">Your Updated Shift:</span> 
+                                    <span className="bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded ml-1">
+                                      {getShiftDateSync(request.targetShiftId)} - {getShiftRole(request.targetShiftId)} (You)
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-green-700 dark:text-green-300">Their Updated Shift:</span>
+                                    <span className="bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded ml-1">
+                                      {getShiftDateSync(request.requesterShiftId)} - {getShiftRole(request.requesterShiftId)} ({getUserName(request.targetUserId)})
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                             
                             {/* Display approver comments from responseNotes */}
                             {request.responseNotes && (
@@ -837,17 +977,41 @@ export default function SwapsPage() {
                             <div className="text-sm text-muted-foreground">
                               <span className="font-medium text-orange-700 dark:text-orange-300">Their Shift:</span>
                               <span className="bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded ml-1">
-                                {getShiftDate(request.requesterShiftId)}
+                                {getShiftDateSync(request.requesterShiftId)} - {getShiftRole(request.requesterShiftId)} ({getUserName(request.requesterUserId)})
                               </span>
                               <span className="mx-2">→</span>
                               <span className="font-medium text-purple-700 dark:text-purple-300">Your Shift:</span>
                               <span className="bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded ml-1">
-                                {getShiftDate(request.targetShiftId)}
+                                {getShiftDateSync(request.targetShiftId)} - {getShiftRole(request.targetShiftId)}
                               </span>
                             </div>
                             <p className="text-sm text-muted-foreground bg-white/70 dark:bg-gray-800/70 p-2 rounded">
                               <span className="font-medium">Reason:</span> {request.reason}
                             </p>
+                            
+                            {/* Show updated shifts after swap for approved requests */}
+                            {request.status === 'APPROVED' && (
+                              <div className="mt-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                                <h4 className="text-sm font-semibold text-green-800 dark:text-green-200 mb-2 flex items-center">
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  After Swap - Updated Assignments
+                                </h4>
+                                <div className="text-sm text-muted-foreground space-y-1">
+                                  <div>
+                                    <span className="font-medium text-purple-700 dark:text-purple-300">Your Updated Shift:</span> 
+                                    <span className="bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded ml-1">
+                                      {getShiftDateSync(request.requesterShiftId)} - {getShiftRole(request.requesterShiftId)} (You)
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-orange-700 dark:text-orange-300">Their Updated Shift:</span>
+                                    <span className="bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded ml-1">
+                                      {getShiftDateSync(request.targetShiftId)} - {getShiftRole(request.targetShiftId)} ({getUserName(request.requesterUserId)})
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                             
                             {/* Display existing approver comments for approved/rejected requests */}
                             {request.responseNotes && request.status !== 'PENDING' && (
@@ -966,17 +1130,48 @@ export default function SwapsPage() {
                            </div>
                         )}
                         <div className="text-sm text-muted-foreground">
-                          <span className="font-medium">Original Shift:</span> {getShiftDate(request.requesterShiftId)}
+                          <span className="font-medium">Original Shift:</span> {getShiftDateSync(request.requesterShiftId)} 
+                          <span className="ml-2 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-medium">
+                            {getShiftRole(request.requesterShiftId)}
+                          </span>
                           {request.targetShiftId && (
                             <>
                               <span className="mx-2">→</span>
-                              <span className="font-medium">Target Shift:</span> {getShiftDate(request.targetShiftId)}
+                              <span className="font-medium">Target Shift:</span> {getShiftDateSync(request.targetShiftId)}
+                              <span className="ml-2 px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 rounded text-xs font-medium">
+                                {getShiftRole(request.targetShiftId)}
+                              </span>
                             </>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground bg-gray-100 dark:bg-gray-800 p-2 rounded">
                           {request.reason}
                         </p>
+                        
+                        {/* Show updated shifts after swap for approved requests */}
+                        {request.status === 'APPROVED' && request.targetShiftId && (
+                          <div className="mt-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                            <h4 className="text-sm font-semibold text-green-800 dark:text-green-200 mb-2 flex items-center">
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              After Swap - Final Assignments
+                            </h4>
+                            <div className="text-sm text-muted-foreground space-y-1">
+                              <div>
+                                <span className="font-medium text-blue-700 dark:text-blue-300">{getUserName(request.requesterUserId)}&apos;s New Shift:</span> 
+                                <span className="bg-blue-100 dark:bg-blue-900/30 px-2 py-1 rounded ml-1">
+                                  {getShiftDateSync(request.targetShiftId)} - {getShiftRole(request.targetShiftId)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="font-medium text-purple-700 dark:text-purple-300">{getUserName(request.targetUserId)}&apos;s New Shift:</span>
+                                <span className="bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded ml-1">
+                                  {getShiftDateSync(request.requesterShiftId)} - {getShiftRole(request.requesterShiftId)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
                         {request.managerComment && (
                           <div className="mt-2">
                             <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Approver Comment:</p>
@@ -995,11 +1190,6 @@ export default function SwapsPage() {
                           {request.status === 'PENDING' && (
                             <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
                               Awaiting target user response
-                            </span>
-                          )}
-                          {request.status === 'APPROVED' && (
-                            <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                              Approved by target user
                             </span>
                           )}
                           {request.status === 'REJECTED' && (

@@ -541,7 +541,7 @@ export default function WeeklySchedule({
           toast({
             title: "Cannot assign shift",
             description: `${userName} is already assigned for ${oppositeRoleName} role for ${date}. Choose a different user.`,
-            variant: "destructive",
+            variant: "info",
           });
           
           setCreatingShift(null);
@@ -558,7 +558,7 @@ export default function WeeklySchedule({
         toast({
           title: "Cannot assign shift",
           description: `${userName} is on approved leave for ${date}. Please check their leave schedule.`,
-          variant: "destructive",
+          variant: "info",
         });
         
         setCreatingShift(null);
@@ -586,6 +586,7 @@ export default function WeeklySchedule({
         toast({
           title: "Shift Updated",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment updated for ${date}`,
+          variant: "success",
         });
 
         // Real-time subscription will handle UI updates automatically - no manual refresh needed
@@ -668,6 +669,7 @@ export default function WeeklySchedule({
         toast({
           title: "Assignment Removed",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment removed for ${date}`,
+          variant: "success",
         });
       }
     } catch (error) {
@@ -708,7 +710,7 @@ export default function WeeklySchedule({
           toast({
             title: "Cannot assign shift",
             description: `${userName} is already assigned for ${oppositeRoleName} role for ${date}. Choose a different user.`,
-            variant: "destructive",
+            variant: "info",
           });
           
           setCreatingShift(null);
@@ -725,7 +727,7 @@ export default function WeeklySchedule({
         toast({
           title: "Cannot assign shift",
           description: `${userName} is on approved leave for ${date}. Please check their leave schedule.`,
-          variant: "destructive",
+          variant: "info",
         });
         
         setCreatingShift(null);
@@ -752,6 +754,7 @@ export default function WeeklySchedule({
           toast({
             title: "Shift Updated",
             description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment updated for ${date}`,
+            variant: "success",
           });
 
           // Real-time subscription will handle UI updates automatically - no manual refresh needed
@@ -814,6 +817,7 @@ export default function WeeklySchedule({
         toast({
           title: "Assignment Removed",
           description: `${role.charAt(0).toUpperCase() + role.slice(1)} assignment removed for ${date}`,
+          variant: "success",
         });
 
         // Real-time subscription will handle UI updates automatically - no manual refresh needed
@@ -821,7 +825,7 @@ export default function WeeklySchedule({
         toast({
           title: "No Assignment Found",
           description: `No ${role} assignment found for ${date}`,
-          variant: "destructive",
+          variant: "info",
         });
       }
 
