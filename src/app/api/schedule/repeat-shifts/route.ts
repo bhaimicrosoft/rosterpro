@@ -116,11 +116,15 @@ export async function POST(request: NextRequest) {
 
       // Create shifts for this day
       shiftsForDay.forEach(sourceShift => {
+        const shiftDate = currentDate.toISOString().split('T')[0];
+        const today = new Date().toISOString().split('T')[0];
+        const isPastDate = shiftDate < today;
+        
         shiftsToCreate.push({
-          date: currentDate.toISOString().split('T')[0],
+          date: shiftDate,
           userId: sourceShift.userId,
           onCallRole: sourceShift.onCallRole,
-          status: 'SCHEDULED'
+          status: isPastDate ? 'COMPLETED' : 'SCHEDULED'
         });
       });
 

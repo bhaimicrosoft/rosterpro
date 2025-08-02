@@ -130,6 +130,13 @@ export default function DashboardPage() {
   const normalizedUserRole = userRole?.toUpperCase();
   const isManagerOrAdmin = normalizedUserRole === 'MANAGER' || normalizedUserRole === 'ADMIN';
 
+  // Helper function to determine shift status based on date
+  const getShiftStatus = useCallback((shiftDate: string): 'SCHEDULED' | 'COMPLETED' => {
+    const today = new Date().toISOString().split('T')[0];
+    const dateOnly = shiftDate.split('T')[0];
+    return dateOnly < today ? 'COMPLETED' : 'SCHEDULED';
+  }, []);
+
   // Helper function to format dates
   const formatDate = (dateString: string) => {
     try {
@@ -916,29 +923,12 @@ export default function DashboardPage() {
         } catch {
 
         }
-      } else if (selectedApproval._type === 'swap') {
-        await swapService.updateSwapRequest(selectedApproval.$id!, {
-          status: 'APPROVED' as SwapStatus
-        });
-
-        // Create notification for requester
-        try {
-          const swapRequest = selectedApproval as SwapRequest;
-          await notificationService.createSwapResponseNotification(
-            swapRequest.requesterUserId,
-            'APPROVED',
-            'Your shift',
-            selectedApproval.$id!,
-            user ? `${user.firstName} ${user.lastName}` : 'Manager'
-          );
-        } catch {
-
-        }
       }
+      // Note: Swap requests are not handled here - they should only be approved by target users
 
       toast({
         title: "Approved",
-        description: `${selectedApproval._type === 'leave' ? 'Leave request' : 'Swap request'} has been approved`,
+        description: "Leave request has been approved",
         duration: 3000,
       });
 
@@ -985,29 +975,12 @@ export default function DashboardPage() {
         } catch {
 
         }
-      } else if (selectedApproval._type === 'swap') {
-        await swapService.updateSwapRequest(selectedApproval.$id!, {
-          status: 'REJECTED' as SwapStatus
-        });
-
-        // Create notification for requester
-        try {
-          const swapRequest = selectedApproval as SwapRequest;
-          await notificationService.createSwapResponseNotification(
-            swapRequest.requesterUserId,
-            'REJECTED',
-            'Your shift',
-            selectedApproval.$id!,
-            user ? `${user.firstName} ${user.lastName}` : 'Manager'
-          );
-        } catch {
-
-        }
       }
+      // Note: Swap requests are not handled here - they should only be rejected by target users
 
       toast({
         title: "Rejected",
-        description: `${selectedApproval._type === 'leave' ? 'Leave request' : 'Swap request'} has been rejected`,
+        description: "Leave request has been rejected",
         duration: 3000,
       });
 
@@ -1163,7 +1136,7 @@ export default function DashboardPage() {
         userId: scheduleForm.employeeId,
         date: scheduleForm.date,
         onCallRole: scheduleForm.onCallRole,
-        status: 'SCHEDULED',
+        status: getShiftStatus(scheduleForm.date),
       }, `${user?.firstName} ${user?.lastName}`); // Pass assigned by info
 
       toast({
@@ -1194,7 +1167,7 @@ export default function DashboardPage() {
     } finally {
       setIsSchedulingShift(false);
     }
-  }, [scheduleForm, toast, fetchDashboardData, user?.firstName, user?.lastName]);
+  }, [scheduleForm, toast, fetchDashboardData, user?.firstName, user?.lastName, getShiftStatus]);
 
   // Team member handlers
   const handleAddMember = useCallback(async () => {
@@ -2128,10 +2101,10 @@ export default function DashboardPage() {
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>
-              {selectedApproval?._type === 'leave' ? 'Leave Request' : 'Swap Request'} Details
+              Leave Request Details
             </DialogTitle>
             <DialogDescription>
-              Review and take action on this {selectedApproval?._type === 'leave' ? 'leave' : 'swap'} request
+              Review and take action on this leave request
             </DialogDescription>
           </DialogHeader>
 
@@ -2145,23 +2118,21 @@ export default function DashboardPage() {
                 <div>
                   <Label className="text-sm font-medium">Type</Label>
                   <p className="text-sm text-muted-foreground capitalize">
-                    {selectedApproval._type === 'leave' ? `${selectedApproval.type} Leave` : 'Shift Swap'}
+                    {selectedApproval.type} Leave
                   </p>
                 </div>
               </div>
 
-              {selectedApproval._type === 'leave' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">Start Date</Label>
-                    <p className="text-sm text-muted-foreground">{formatDate(selectedApproval.startDate!)}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">End Date</Label>
-                    <p className="text-sm text-muted-foreground">{formatDate(selectedApproval.endDate!)}</p>
-                  </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Start Date</Label>
+                  <p className="text-sm text-muted-foreground">{formatDate(selectedApproval.startDate!)}</p>
                 </div>
-              )}
+                <div>
+                  <Label className="text-sm font-medium">End Date</Label>
+                  <p className="text-sm text-muted-foreground">{formatDate(selectedApproval.endDate!)}</p>
+                </div>
+              </div>
 
               <div>
                 <Label className="text-sm font-medium">Reason</Label>

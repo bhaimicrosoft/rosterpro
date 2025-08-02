@@ -418,11 +418,14 @@ export const shiftService = {
         // Create primary shift if doesn't exist
         const primaryExists = existingShifts.some(shift => shift.onCallRole === 'PRIMARY');
         if (!primaryExists) {
+          const today = new Date().toISOString().split('T')[0];
+          const isPastDate = dateStr.split('T')[0] < today;
+          
           const primaryShift = await this.createShift({
             date: dateStr,
             onCallRole: 'PRIMARY',
             userId: primaryUserId,
-            status: 'SCHEDULED',
+            status: isPastDate ? 'COMPLETED' : 'SCHEDULED',
           }, 'System (Repeat Schedule)');
           shifts.push(primaryShift);
         }
@@ -430,11 +433,14 @@ export const shiftService = {
         // Create backup shift if doesn't exist  
         const backupExists = existingShifts.some(shift => shift.onCallRole === 'BACKUP');
         if (!backupExists && backupUserId) {
+          const today = new Date().toISOString().split('T')[0];
+          const isPastDate = dateStr.split('T')[0] < today;
+          
           const backupShift = await this.createShift({
             date: dateStr,
             onCallRole: 'BACKUP',
             userId: backupUserId,
-            status: 'SCHEDULED',
+            status: isPastDate ? 'COMPLETED' : 'SCHEDULED',
           }, 'System (Repeat Schedule)');
           shifts.push(backupShift);
         }

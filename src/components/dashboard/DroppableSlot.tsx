@@ -11,6 +11,7 @@ interface DroppableSlotProps {
   children?: React.ReactNode;
   className?: string;
   isCreating?: boolean; // New prop for loading state
+  isCompleted?: boolean; // New prop for completed status
 }
 
 export default function DroppableSlot({ 
@@ -18,7 +19,8 @@ export default function DroppableSlot({
   assignedUser, 
   children,
   className = "",
-  isCreating = false
+  isCreating = false,
+  isCompleted = false
 }: DroppableSlotProps) {
   return (
     <Droppable droppableId={droppableId}>
@@ -32,7 +34,7 @@ export default function DroppableSlot({
             ${snapshot.isDraggingOver 
               ? 'border-blue-400 bg-blue-50' 
               : assignedUser 
-                ? 'border-gray-200 bg-gray-50' 
+                ? (isCompleted ? 'border-gray-200 bg-gray-50 opacity-70' : 'border-gray-200 bg-gray-50')
                 : 'border-gray-300 bg-gray-100'
             }
             ${className}
@@ -44,6 +46,7 @@ export default function DroppableSlot({
               index={0} // Single user per slot, so index is always 0
               draggableId={`${assignedUser.$id}-assigned-${droppableId}`} // Unique ID with source info
               className="m-1"
+              isCompleted={isCompleted}
             />
           ) : isCreating ? (
             <div className="flex items-center gap-2 text-xs text-blue-600">

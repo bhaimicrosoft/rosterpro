@@ -15,6 +15,7 @@ interface DraggableEmployeeBadgeProps {
   isOnLeave?: boolean;
   leaveType?: LeaveType;
   leaveDate?: string;
+  isCompleted?: boolean; // New prop for completed status
 }
 
 export default function DraggableEmployeeBadge({ 
@@ -25,9 +26,15 @@ export default function DraggableEmployeeBadge({
   draggableId,
   isOnLeave = false,
   leaveType,
-  leaveDate
+  leaveDate,
+  isCompleted = false
 }: DraggableEmployeeBadgeProps) {
-  const getUserColor = (userId: string) => {
+  const getUserColor = (userId: string, isCompleted = false) => {
+    if (isCompleted) {
+      // Return muted gray colors for completed shifts
+      return { bg: 'bg-gray-500', border: 'border-gray-200', light: 'bg-gray-50', text: 'text-gray-700' };
+    }
+    
     const colors = [
       { bg: 'bg-blue-600', border: 'border-blue-200', light: 'bg-blue-50', text: 'text-blue-800' },
       { bg: 'bg-emerald-600', border: 'border-emerald-200', light: 'bg-emerald-50', text: 'text-emerald-800' },
@@ -43,14 +50,16 @@ export default function DraggableEmployeeBadge({
     return colors[colorIndex];
   };
 
-  const userColors = getUserColor(user.$id);
+  const userColors = getUserColor(user.$id, isCompleted);
   const initials = `${user.firstName[0]}${user.lastName[0]}`;
   
   // Override colors and make non-draggable if on leave
   const isEffectivelyDisabled = isDragDisabled || isOnLeave;
   const badgeColors = isOnLeave 
     ? { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' }
-    : { bg: userColors.bg, text: 'text-white', border: 'border-0' };
+    : isCompleted
+      ? { bg: userColors.bg, text: userColors.text, border: userColors.border }
+      : { bg: userColors.bg, text: 'text-white', border: 'border-0' };
 
   return (
     <Draggable 
@@ -76,6 +85,7 @@ export default function DraggableEmployeeBadge({
                   ${snapshot.isDragging ? 'shadow-lg scale-105 rotate-2' : 'hover:shadow-md'}
                   ${isOnLeave ? 'ring-2 ring-orange-200' : ''}
                   ${isEffectivelyDisabled ? 'cursor-default' : ''}
+                  ${isCompleted ? 'opacity-70' : ''}
                 `}
                 style={{
                   transform: snapshot.isDragging ? 'rotate(2deg)' : undefined,

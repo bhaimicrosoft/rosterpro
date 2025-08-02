@@ -1371,7 +1371,7 @@ export default function SchedulePage() {
         {/* Schedule Header with View Toggle */}
         <Card className="border-0 shadow-lg">
           <CardHeader className="border-b border-slate-200 dark:border-slate-700">
-            <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
+            <div className="grid grid-cols-1 gap-4 lg:flex lg:flex-row lg:items-center lg:justify-between lg:space-y-0">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <CalendarIcon className="h-5 w-5" />
@@ -1380,7 +1380,7 @@ export default function SchedulePage() {
                 </CardTitle>
                 
                 {/* View Mode Toggle - Mobile positioned */}
-                <div className="flex md:hidden">
+                <div className="flex lg:hidden">
                   <Button
                     variant={viewMode === 'month' ? 'default' : 'outline'}
                     size="sm"
@@ -1436,7 +1436,7 @@ export default function SchedulePage() {
               </div>
               
               {/* View Mode Toggle and Actions - Desktop */}
-              <div className="hidden md:flex items-center gap-2">
+              <div className="hidden lg:flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"

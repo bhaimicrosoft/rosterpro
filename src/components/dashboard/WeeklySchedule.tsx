@@ -163,6 +163,79 @@ export default function WeeklySchedule({
     }
   }, [isScheduleManagement, goToCurrentWeek, onWeekStartDateChange]);
   
+  // Helper function to determine shift status based on date
+  const getShiftStatus = useCallback((shiftDate: string): 'SCHEDULED' | 'COMPLETED' => {
+    const today = new Date().toISOString().split('T')[0];
+    const dateOnly = shiftDate.split('T')[0];
+    return dateOnly < today ? 'COMPLETED' : 'SCHEDULED';
+  }, []);
+
+  // Helper function to check if a date is in the past (completed)
+  const isDateCompleted = useCallback((dateStr: string): boolean => {
+    const today = new Date().toISOString().split('T')[0];
+    return dateStr < today;
+  }, []);
+
+  // Helper function to get completed shift styling for containers
+  const getCompletedShiftStyling = useCallback((baseClass: string, role: 'primary' | 'backup', isCompleted: boolean) => {
+    if (!isCompleted) return baseClass;
+    
+    // For completed shifts, use muted gray colors
+    if (role === 'primary') {
+      return baseClass
+        // Light backgrounds (containers)
+        .replace(
+          'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200',
+          'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300'
+        )
+        // Dark backgrounds (badges)
+        .replace(
+          'bg-blue-600 text-white',
+          'bg-gray-500 text-gray-100'
+        )
+        // Hover states
+        .replace(
+          'hover:bg-blue-200 dark:hover:bg-blue-900/50',
+          'hover:bg-gray-200 dark:hover:bg-gray-800/50'
+        )
+        // Border cleanups
+        .replace(
+          'border-blue-300 dark:hover:border-blue-700',
+          ''
+        )
+        .replace(
+          'border-2 border-transparent hover:border-blue-300 dark:hover:border-blue-700',
+          ''
+        );
+    } else {
+      return baseClass
+        // Light backgrounds (containers)
+        .replace(
+          'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200',
+          'bg-gray-100 dark:bg-gray-800/30 text-gray-700 dark:text-gray-300'
+        )
+        // Dark backgrounds (badges)
+        .replace(
+          'bg-green-600 text-white',
+          'bg-gray-500 text-gray-100'
+        )
+        // Hover states
+        .replace(
+          'hover:bg-green-200 dark:hover:bg-green-900/50',
+          'hover:bg-gray-200 dark:hover:bg-gray-800/50'
+        )
+        // Border cleanups
+        .replace(
+          'border-green-300 dark:hover:border-green-700',
+          ''
+        )
+        .replace(
+          'border-2 border-transparent hover:border-green-300 dark:hover:border-green-700',
+          ''
+        );
+    }
+  }, []);
+  
   // Operation tracking
   const [creatingShift, setCreatingShift] = useState<string | null>(null);
   
@@ -507,6 +580,7 @@ export default function WeeklySchedule({
         await shiftService.updateShift(existingShift.$id, {
           userId,
           onCallRole: role.toUpperCase() as 'PRIMARY' | 'BACKUP',
+          status: getShiftStatus(date),
         }, `${user?.firstName} ${user?.lastName}`);
 
         toast({
@@ -525,7 +599,7 @@ export default function WeeklySchedule({
           userId,
           date: shiftDate,
           onCallRole: role.toUpperCase() as 'PRIMARY' | 'BACKUP',
-          status: 'SCHEDULED',
+          status: getShiftStatus(date),
         }, `${user?.firstName} ${user?.lastName}`);
 
         // Real-time subscription will handle UI updates automatically - no manual refresh needed
@@ -535,7 +609,7 @@ export default function WeeklySchedule({
       console.error('Error in handleDragEnd:', error);
       setCreatingShift(null);
     }
-  }, [teamMembers, toast, weekSchedule, user?.firstName, user?.lastName]);
+  }, [teamMembers, toast, weekSchedule, user?.firstName, user?.lastName, getShiftStatus]);
 
   // Execute shift replacement
   const executeShiftReplacement = useCallback(async () => {
@@ -550,6 +624,7 @@ export default function WeeklySchedule({
       await shiftService.updateShift(existingShiftId!, {
         userId,
         onCallRole: pendingOperation.role.toUpperCase() as 'PRIMARY' | 'BACKUP',
+        status: getShiftStatus(pendingOperation.date),
       }, `${user?.firstName} ${user?.lastName}`);
 
       // Real-time subscription will handle UI updates automatically - no manual refresh needed
@@ -566,7 +641,7 @@ export default function WeeklySchedule({
       setIsReplaceDialogOpen(false);
       setPendingOperation(null);
     }
-  }, [pendingOperation, user?.firstName, user?.lastName, toast]);
+  }, [pendingOperation, user?.firstName, user?.lastName, toast, getShiftStatus]);
 
   // Execute shift deletion
   const executeShiftDeletion = useCallback(async () => {
@@ -671,6 +746,7 @@ export default function WeeklySchedule({
           await shiftService.updateShift(existingShift.$id, {
             userId,
             onCallRole: role.toUpperCase() as 'PRIMARY' | 'BACKUP',
+            status: getShiftStatus(date),
           }, `${user?.firstName} ${user?.lastName}`);
 
           toast({
@@ -700,7 +776,7 @@ export default function WeeklySchedule({
           userId,
           date: shiftDate,
           onCallRole: role.toUpperCase() as 'PRIMARY' | 'BACKUP',
-          status: 'SCHEDULED',
+          status: getShiftStatus(date),
         }, `${user?.firstName} ${user?.lastName}`);
 
         // Real-time subscription will handle UI updates automatically - no manual refresh needed
@@ -711,7 +787,7 @@ export default function WeeklySchedule({
       console.error('Error in mobile assignment:', error);
       setCreatingShift(null);
     }
-  }, [teamMembers, toast, weekSchedule, user?.firstName, user?.lastName, isScheduleManagement]);
+  }, [teamMembers, toast, weekSchedule, user?.firstName, user?.lastName, isScheduleManagement, getShiftStatus]);
 
   // Handle mobile remove assignment
   const handleMobileRemove = useCallback(async (role: 'primary' | 'backup', date: string) => {
@@ -911,7 +987,7 @@ export default function WeeklySchedule({
     );
   }
 
-  // Conditionally wrap with DragDropContext only for home dashboard mode
+  // Conditionally wrap with DragDropContext only for schedule management mode
   if (isScheduleManagement) {
     return (
       <div className="space-y-4">
@@ -954,11 +1030,17 @@ export default function WeeklySchedule({
                     let cardClass = 'flex-shrink-0 w-44 snap-center transition-all duration-300';
                     let innerCardClass = 'h-full border rounded-lg p-3';
                     
+                    // Apply completed styling for past dates
+                    const isCompleted = isDateCompleted(day.date);
+                    
                     if (isToday) {
                       cardClass += ' scale-105'; // Slightly larger for TODAY
                       innerCardClass += ' border-blue-500 bg-gradient-to-b from-blue-50 to-blue-100/70 dark:from-blue-950/70 dark:to-blue-900/50 shadow-lg ring-2 ring-blue-200 dark:ring-blue-800';
                     } else if (isWeekend) {
                       innerCardClass += ' border-orange-200 bg-gradient-to-b from-orange-25 to-amber-25 dark:from-orange-950/30 dark:to-amber-950/20';
+                    } else if (isCompleted) {
+                      // Completed/past date styling
+                      innerCardClass += ' border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/30 opacity-80';
                     } else {
                       innerCardClass += ' border-border bg-card hover:bg-muted/30';
                     }
@@ -971,13 +1053,15 @@ export default function WeeklySchedule({
                             <div className={`text-xs font-medium uppercase tracking-wide mb-1 ${
                               isToday ? 'text-blue-700 dark:text-blue-300' : 
                               isWeekend ? 'text-orange-600 dark:text-orange-400' : 
+                              isCompleted ? 'text-gray-500 dark:text-gray-400' :
                               'text-muted-foreground'
                             }`}>
-                              {isToday ? 'TODAY' : day.dayName}
+                              {isToday ? 'TODAY' : isCompleted ? 'COMPLETED' : day.dayName}
                             </div>
                             <div className={`text-xl font-bold ${
                               isToday ? 'text-blue-700 dark:text-blue-300' : 
                               isWeekend ? 'text-orange-700 dark:text-orange-300' : 
+                              isCompleted ? 'text-gray-600 dark:text-gray-300' :
                               'text-foreground'
                             }`}>
                               {day.dayNumber}
@@ -994,10 +1078,16 @@ export default function WeeklySchedule({
                               (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border-2 border-transparent hover:border-blue-300 dark:hover:border-blue-700">
+                                    <div className={getCompletedShiftStyling(
+                                      "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors",
+                                      'primary',
+                                      isDateCompleted(day.date)
+                                    )}>
                                       <div className="flex items-center justify-between">
                                         <div>
-                                          <div className="font-medium text-sm">Primary On-Call</div>
+                                          <div className="font-medium text-sm">
+                                            Primary On-Call
+                                          </div>
                                           <div className="text-sm">
                                             {(day.primary as User).firstName} {(day.primary as User).lastName}
                                           </div>
@@ -1041,10 +1131,16 @@ export default function WeeklySchedule({
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ) : (
-                                <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg">
+                                <div className={getCompletedShiftStyling(
+                                  "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg",
+                                  'primary',
+                                  isDateCompleted(day.date)
+                                )}>
                                   <div className="flex items-center justify-between">
                                     <div>
-                                      <div className="font-medium text-sm">Primary On-Call</div>
+                                      <div className="font-medium text-sm">
+                                        Primary On-Call
+                                      </div>
                                       <div className="text-sm">
                                         {(day.primary as User).firstName} {(day.primary as User).lastName}
                                       </div>
@@ -1116,10 +1212,16 @@ export default function WeeklySchedule({
                               (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors border-2 border-transparent hover:border-green-300 dark:hover:border-green-700">
+                                    <div className={getCompletedShiftStyling(
+                                      "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors",
+                                      'backup',
+                                      isDateCompleted(day.date)
+                                    )}>
                                       <div className="flex items-center justify-between">
                                         <div>
-                                          <div className="font-medium text-sm">Backup On-Call</div>
+                                          <div className="font-medium text-sm">
+                                            Backup On-Call
+                                          </div>
                                           <div className="text-sm">
                                             {(day.backup as User).firstName} {(day.backup as User).lastName}
                                           </div>
@@ -1163,7 +1265,11 @@ export default function WeeklySchedule({
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ) : (
-                                <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg">
+                                <div className={getCompletedShiftStyling(
+                                  "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg",
+                                  'backup',
+                                  isDateCompleted(day.date)
+                                )}>
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="font-medium text-sm">Backup On-Call</div>
@@ -1286,6 +1392,9 @@ export default function WeeklySchedule({
                     let headerClass = 'text-muted-foreground';
                     let numberClass = 'text-foreground';
                     
+                    // Apply completed styling for past dates
+                    const isCompleted = isDateCompleted(day.date);
+                    
                     if (day.isToday) {
                       backgroundClass = 'bg-gradient-to-b from-blue-50 to-blue-100/50 dark:from-blue-950/50 dark:to-blue-900/30 border-l-4 border-l-blue-500 hover:bg-blue-100/70 dark:hover:bg-blue-900/40';
                       headerClass = 'text-blue-700 dark:text-blue-300 font-semibold';
@@ -1294,6 +1403,11 @@ export default function WeeklySchedule({
                       backgroundClass = 'bg-gradient-to-b from-orange-25 to-amber-25 dark:from-orange-950/20 dark:to-amber-950/10 hover:bg-orange-50 dark:hover:bg-orange-950/30';
                       headerClass = 'text-orange-600 dark:text-orange-400';
                       numberClass = 'text-orange-700 dark:text-orange-300';
+                    } else if (isCompleted) {
+                      // Completed/past date styling for desktop
+                      backgroundClass = 'bg-gray-50 dark:bg-gray-800/30 border-l-4 border-l-gray-400 opacity-80 hover:bg-gray-100 dark:hover:bg-gray-800/50';
+                      headerClass = 'text-gray-500 dark:text-gray-400';
+                      numberClass = 'text-gray-600 dark:text-gray-300';
                     }
                     
                     return (
@@ -1314,6 +1428,11 @@ export default function WeeklySchedule({
                               Today
                             </div>
                           )}
+                          {isCompleted && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                              Completed
+                            </div>
+                          )}
                         </div>
 
                         {/* Primary Assignment */}
@@ -1327,10 +1446,16 @@ export default function WeeklySchedule({
                               (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors border-2 border-transparent hover:border-blue-300 dark:hover:border-blue-700">
+                                    <div className={getCompletedShiftStyling(
+                                      "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors",
+                                      'primary',
+                                      isDateCompleted(day.date)
+                                    )}>
                                       <div className="flex items-center justify-between">
                                         <div>
-                                          <div className="font-medium text-sm">Primary On-Call</div>
+                                          <div className="font-medium text-sm">
+                                            Primary On-Call
+                                          </div>
                                           <div className="text-sm">
                                             {(day.primary as User).firstName} {(day.primary as User).lastName}
                                           </div>
@@ -1374,7 +1499,11 @@ export default function WeeklySchedule({
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ) : (
-                                <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg">
+                                <div className={getCompletedShiftStyling(
+                                  "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg",
+                                  'primary',
+                                  isDateCompleted(day.date)
+                                )}>
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="font-medium text-sm">Primary On-Call</div>
@@ -1446,6 +1575,7 @@ export default function WeeklySchedule({
                               slotType="primary"
                               className="min-h-[50px] lg:min-h-[60px] border-2 border-dashed border-blue-200 dark:border-blue-800 rounded-lg"
                               isCreating={creatingShift === `${day.date}-primary`}
+                              isCompleted={isDateCompleted(day.date)}
                             />
                           )}
                         </div>
@@ -1461,7 +1591,11 @@ export default function WeeklySchedule({
                               (user.role === 'MANAGER' || user.role === 'ADMIN') ? (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors border-2 border-transparent hover:border-green-300 dark:hover:border-green-700">
+                                    <div className={getCompletedShiftStyling(
+                                      "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg cursor-pointer hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors",
+                                      'backup',
+                                      isDateCompleted(day.date)
+                                    )}>
                                       <div className="flex items-center justify-between">
                                         <div>
                                           <div className="font-medium text-sm">Backup On-Call</div>
@@ -1508,7 +1642,11 @@ export default function WeeklySchedule({
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ) : (
-                                <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg">
+                                <div className={getCompletedShiftStyling(
+                                  "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg",
+                                  'backup',
+                                  isDateCompleted(day.date)
+                                )}>
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="font-medium text-sm">Backup On-Call</div>
@@ -1579,6 +1717,7 @@ export default function WeeklySchedule({
                               slotType="backup"
                               className="min-h-[50px] lg:min-h-[60px] border-2 border-dashed border-green-200 dark:border-green-800 rounded-lg"
                               isCreating={creatingShift === `${day.date}-backup`}
+                              isCompleted={isDateCompleted(day.date)}
                             />
                           )}
                         </div>
@@ -1603,14 +1742,14 @@ export default function WeeklySchedule({
     );
   }
 
-  // Home dashboard mode with DragDropContext
-  return (
-    <>
-      <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="space-y-4">
-          {/* Mobile-First Enhanced Navigation Header */}
-          <Card>
-            <CardHeader className="pb-3 sm:pb-4">
+  // Home dashboard mode with conditional DragDropContext (only for managers/admins)
+  const canManageSchedule = user.role === 'MANAGER' || user.role === 'ADMIN';
+  
+  const scheduleContent = (
+    <div className="space-y-4">
+      {/* Mobile-First Enhanced Navigation Header */}
+      <Card>
+        <CardHeader className="pb-3 sm:pb-4">
               {/* Mobile Header - Compact */}
               <div className="block sm:hidden">
                 <div className="flex items-center justify-between mb-4">
@@ -1800,9 +1939,9 @@ export default function WeeklySchedule({
             </CardHeader>
           </Card>
 
-          {/* Team Members Panel - Only show for managers and on large screens and above and NOT in schedule management mode */}
+          {/* Team Members Panel - Only show for managers/admins and on large screens and above and NOT in schedule management mode */}
           <div className="hidden lg:block">
-            {user.role === 'MANAGER' && teamMembers.length > 0 && !isScheduleManagement && (
+            {canManageSchedule && teamMembers.length > 0 && !isScheduleManagement && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -1867,6 +2006,7 @@ export default function WeeklySchedule({
                       // Enhanced mobile styling for TODAY
                       const isToday = day.isToday;
                       const isWeekend = day.isWeekend;
+                      const isCompleted = isDateCompleted(day.date);
                       
                       let cardClass = 'flex-shrink-0 w-44 snap-center transition-all duration-300';
                       let innerCardClass = 'h-full border rounded-lg';
@@ -1876,6 +2016,9 @@ export default function WeeklySchedule({
                         innerCardClass += ' border-blue-500 bg-gradient-to-b from-blue-50 to-blue-100/70 dark:from-blue-950/70 dark:to-blue-900/50 shadow-lg ring-2 ring-blue-200 dark:ring-blue-800';
                       } else if (isWeekend) {
                         innerCardClass += ' border-orange-200 bg-gradient-to-b from-orange-25 to-amber-25 dark:from-orange-950/30 dark:to-amber-950/20';
+                      } else if (isCompleted) {
+                        // Completed/past date styling
+                        innerCardClass += ' border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/30 opacity-80';
                       } else {
                         innerCardClass += ' border-border bg-card hover:bg-muted/30';
                       }
@@ -1888,13 +2031,15 @@ export default function WeeklySchedule({
                               <div className={`text-xs font-medium uppercase tracking-wide mb-1 ${
                                 isToday ? 'text-blue-700 dark:text-blue-300' : 
                                 isWeekend ? 'text-orange-600 dark:text-orange-400' : 
+                                isCompleted ? 'text-gray-500 dark:text-gray-400' :
                                 'text-muted-foreground'
                               }`}>
-                                {day.dayName}
+                                {isToday ? 'TODAY' : isCompleted ? 'COMPLETED' : day.dayName}
                               </div>
                               <div className={`text-xl font-bold ${
                                 isToday ? 'text-blue-700 dark:text-blue-300' : 
                                 isWeekend ? 'text-orange-700 dark:text-orange-300' : 
+                                isCompleted ? 'text-gray-600 dark:text-gray-300' :
                                 'text-foreground'
                               }`}>
                                 {day.dayNumber}
@@ -1908,159 +2053,217 @@ export default function WeeklySchedule({
                             
                             {/* Mobile Shift Assignment - Remove the component's own header styling */}
                             <div className="p-3">
-                              {/* Primary Assignment */}
-                              <div className="space-y-2 mb-3">
-                                <div className="flex items-center justify-between">
-                                  <Badge variant="default" className="text-xs px-2 py-0.5 h-5 bg-blue-600">
-                                    Primary
-                                  </Badge>
-                                  {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 w-6 p-0"
-                                          disabled={creatingShift === `${day.date}-primary`}
-                                        >
-                                          <Plus className="h-3 w-3" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="center" className="w-48">
-                                        <DropdownMenuLabel className="text-xs">
-                                          {day.primary ? 'Change Primary' : 'Assign Primary'}
-                                        </DropdownMenuLabel>
-                                        {deduplicateTeamMembers(teamMembers)
-                                          .filter((employee) => {
-                                            // Exclude manager/admin
-                                            if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
-                                            // Exclude current primary user
-                                            if (day.primary && (day.primary as User).$id === employee.$id) return false;
-                                            // Exclude current backup user to prevent same person being both
-                                            if (day.backup && (day.backup as User).$id === employee.$id) return false;
-                                            return true;
-                                          })
-                                          .map((employee) => (
-                                          <DropdownMenuItem
-                                            key={`primary-${employee.$id}`}
-                                            onClick={() => handleMobileAssignment(employee.$id, 'primary', day.date)}
-                                            className="text-xs"
+                              {/* Managers/Admins: Show interactive assignment */}
+                              {canManageSchedule && (
+                                <>
+                                  {/* Primary Assignment */}
+                                  <div className="space-y-2 mb-3">
+                                    <div className="flex items-center justify-between">
+                                      <Badge variant="default" className="text-xs px-2 py-0.5 h-5 bg-blue-600">
+                                        Primary
+                                      </Badge>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
                                             disabled={creatingShift === `${day.date}-primary`}
                                           >
-                                            {employee.firstName} {employee.lastName}
-                                          </DropdownMenuItem>
-                                        ))}
-                                        {day.primary && (
-                                          <>
-                                            <DropdownMenuSeparator />
+                                            <Plus className="h-3 w-3" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="center" className="w-48">
+                                          <DropdownMenuLabel className="text-xs">
+                                            {day.primary ? 'Change Primary' : 'Assign Primary'}
+                                          </DropdownMenuLabel>
+                                          {deduplicateTeamMembers(teamMembers)
+                                            .filter((employee) => {
+                                              // Exclude manager/admin
+                                              if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
+                                              // Exclude current primary user
+                                              if (day.primary && (day.primary as User).$id === employee.$id) return false;
+                                              // Exclude current backup user to prevent same person being both
+                                              if (day.backup && (day.backup as User).$id === employee.$id) return false;
+                                              return true;
+                                            })
+                                            .map((employee) => (
                                             <DropdownMenuItem
-                                              onClick={() => handleMobileRemove('primary', day.date)}
-                                              className="text-xs text-red-600 dark:text-red-400"
+                                              key={`primary-${employee.$id}`}
+                                              onClick={() => handleMobileAssignment(employee.$id, 'primary', day.date)}
+                                              className="text-xs"
                                               disabled={creatingShift === `${day.date}-primary`}
                                             >
-                                              Remove Primary
+                                              {employee.firstName} {employee.lastName}
                                             </DropdownMenuItem>
-                                          </>
-                                        )}
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  )}
-                                </div>
-                                
-                                <div className="min-h-[40px] rounded border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center p-2">
-                                  {day.primary ? (
-                                    <Badge 
-                                      className="bg-blue-600 text-white px-2 py-1 text-xs"
-                                    >
-                                      {(day.primary as User).firstName[0]}{(day.primary as User).lastName[0]}
-                                    </Badge>
-                                  ) : creatingShift === `${day.date}-primary` ? (
-                                    <div className="flex items-center gap-2 text-xs text-blue-600">
-                                      <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></div>
-                                      Creating...
+                                          ))}
+                                          {day.primary && (
+                                            <>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem
+                                                onClick={() => handleMobileRemove('primary', day.date)}
+                                                className="text-xs text-red-600 dark:text-red-400"
+                                                disabled={creatingShift === `${day.date}-primary`}
+                                              >
+                                                Remove Primary
+                                              </DropdownMenuItem>
+                                            </>
+                                          )}
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     </div>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">Unassigned</span>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Backup Assignment */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 border-green-400 text-green-700 bg-green-50">
-                                    Backup
-                                  </Badge>
-                                  {(user.role === 'MANAGER' || user.role === 'ADMIN') && (
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 w-6 p-0"
-                                          disabled={creatingShift === `${day.date}-backup`}
+                                    
+                                    <div className="min-h-[40px] rounded border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center p-2">
+                                      {day.primary ? (
+                                        <Badge 
+                                          className={getCompletedShiftStyling(
+                                            "bg-blue-600 text-white px-2 py-1 text-xs",
+                                            'primary',
+                                            isDateCompleted(day.date)
+                                          )}
                                         >
-                                          <Plus className="h-3 w-3" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="center" className="w-48">
-                                        <DropdownMenuLabel className="text-xs">
-                                          {day.backup ? 'Change Backup' : 'Assign Backup'}
-                                        </DropdownMenuLabel>
-                                        {deduplicateTeamMembers(teamMembers)
-                                          .filter((employee) => {
-                                            // Exclude manager/admin
-                                            if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
-                                            // Exclude current backup user
-                                            if (day.backup && (day.backup as User).$id === employee.$id) return false;
-                                            // Exclude current primary user to prevent same person being both
-                                            if (day.primary && (day.primary as User).$id === employee.$id) return false;
-                                            return true;
-                                          })
-                                          .map((employee) => (
-                                          <DropdownMenuItem
-                                            key={`backup-${employee.$id}`}
-                                            onClick={() => handleMobileAssignment(employee.$id, 'backup', day.date)}
-                                            className="text-xs"
+                                          {(day.primary as User).firstName[0]}{(day.primary as User).lastName[0]}
+                                        </Badge>
+                                      ) : creatingShift === `${day.date}-primary` ? (
+                                        <div className="flex items-center gap-2 text-xs text-blue-600">
+                                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></div>
+                                          Creating...
+                                        </div>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">Unassigned</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Backup Assignment */}
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 border-green-400 text-green-700 bg-green-50">
+                                        Backup
+                                      </Badge>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
                                             disabled={creatingShift === `${day.date}-backup`}
                                           >
-                                            {employee.firstName} {employee.lastName}
-                                          </DropdownMenuItem>
-                                        ))}
-                                        {day.backup && (
-                                          <>
-                                            <DropdownMenuSeparator />
+                                            <Plus className="h-3 w-3" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="center" className="w-48">
+                                          <DropdownMenuLabel className="text-xs">
+                                            {day.backup ? 'Change Backup' : 'Assign Backup'}
+                                          </DropdownMenuLabel>
+                                          {deduplicateTeamMembers(teamMembers)
+                                            .filter((employee) => {
+                                              // Exclude manager/admin
+                                              if (employee.role === 'MANAGER' || employee.role === 'ADMIN') return false;
+                                              // Exclude current backup user
+                                              if (day.backup && (day.backup as User).$id === employee.$id) return false;
+                                              // Exclude current primary user to prevent same person being both
+                                              if (day.primary && (day.primary as User).$id === employee.$id) return false;
+                                              return true;
+                                            })
+                                            .map((employee) => (
                                             <DropdownMenuItem
-                                              onClick={() => handleMobileRemove('backup', day.date)}
-                                              className="text-xs text-red-600 dark:text-red-400"
+                                              key={`backup-${employee.$id}`}
+                                              onClick={() => handleMobileAssignment(employee.$id, 'backup', day.date)}
+                                              className="text-xs"
                                               disabled={creatingShift === `${day.date}-backup`}
                                             >
-                                              Remove Backup
+                                              {employee.firstName} {employee.lastName}
                                             </DropdownMenuItem>
-                                          </>
-                                        )}
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  )}
-                                </div>
-                                
-                                <div className="min-h-[40px] rounded border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center p-2">
-                                  {day.backup ? (
-                                    <Badge 
-                                      className="bg-green-600 text-white px-2 py-1 text-xs"
-                                    >
-                                      {(day.backup as User).firstName[0]}{(day.backup as User).lastName[0]}
-                                    </Badge>
-                                  ) : creatingShift === `${day.date}-backup` ? (
-                                    <div className="flex items-center gap-2 text-xs text-green-600">
-                                      <div className="animate-spin rounded-full h-3 w-3 border-2 border-green-600 border-t-transparent"></div>
-                                      Creating...
+                                          ))}
+                                          {day.backup && (
+                                            <>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem
+                                                onClick={() => handleMobileRemove('backup', day.date)}
+                                                className="text-xs text-red-600 dark:text-red-400"
+                                                disabled={creatingShift === `${day.date}-backup`}
+                                              >
+                                                Remove Backup
+                                              </DropdownMenuItem>
+                                            </>
+                                          )}
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     </div>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">Unassigned</span>
-                                  )}
-                                </div>
-                              </div>
+                                    
+                                    <div className="min-h-[40px] rounded border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center p-2">
+                                      {day.backup ? (
+                                        <Badge 
+                                          className={getCompletedShiftStyling(
+                                            "bg-green-600 text-white px-2 py-1 text-xs",
+                                            'backup',
+                                            isDateCompleted(day.date)
+                                          )}
+                                        >
+                                          {(day.backup as User).firstName[0]}{(day.backup as User).lastName[0]}
+                                        </Badge>
+                                      ) : creatingShift === `${day.date}-backup` ? (
+                                        <div className="flex items-center gap-2 text-xs text-green-600">
+                                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-green-600 border-t-transparent"></div>
+                                          Creating...
+                                        </div>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">Unassigned</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Employees: Show read-only view */}
+                              {!canManageSchedule && (
+                                <>
+                                  {/* Primary Assignment - Read Only */}
+                                  <div className="space-y-2 mb-3">
+                                    <Badge variant="default" className="text-xs px-2 py-0.5 h-5 bg-blue-600">
+                                      Primary
+                                    </Badge>
+                                    {day.primary ? (
+                                      <div className={getCompletedShiftStyling(
+                                        "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg min-h-[40px] flex items-center",
+                                        'primary',
+                                        isDateCompleted(day.date)
+                                      )}>
+                                        <div className="text-sm font-medium">
+                                          {(day.primary as User).firstName} {(day.primary as User).lastName}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed min-h-[40px] flex items-center">
+                                        <div className="text-sm">No Primary Assigned</div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Backup Assignment - Read Only */}
+                                  <div className="space-y-2">
+                                    <Badge variant="outline" className="text-xs px-2 py-0.5 h-5 border-green-400 text-green-700 bg-green-50">
+                                      Backup
+                                    </Badge>
+                                    {day.backup ? (
+                                      <div className={getCompletedShiftStyling(
+                                        "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg min-h-[40px] flex items-center",
+                                        'backup',
+                                        isDateCompleted(day.date)
+                                      )}>
+                                        <div className="text-sm font-medium">
+                                          {(day.backup as User).firstName} {(day.backup as User).lastName}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed min-h-[40px] flex items-center">
+                                        <div className="text-sm">No Backup Assigned</div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </>
+                              )}
                               
                               {/* Mobile Leave Indicator */}
                               {day.employeesOnLeave && day.employeesOnLeave.length > 0 && (
@@ -2153,7 +2356,11 @@ export default function WeeklySchedule({
                             {isScheduleManagement ? (
                               /* Schedule Management Mode - Show + button */
                               day.primary ? (
-                                <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg">
+                                <div className={getCompletedShiftStyling(
+                                  "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg",
+                                  'primary',
+                                  isDateCompleted(day.date)
+                                )}>
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="font-medium text-sm">Primary On-Call</div>
@@ -2284,7 +2491,11 @@ export default function WeeklySchedule({
                                 {/* Medium screens and below - Show dropdown menu */}
                                 <div className="block lg:hidden">
                                   {day.primary ? (
-                                    <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg">
+                                    <div className={getCompletedShiftStyling(
+                                      "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg",
+                                      'primary',
+                                      isDateCompleted(day.date)
+                                    )}>
                                       <div className="flex items-center justify-between">
                                         <div>
                                           <div className="font-medium text-sm">Primary On-Call</div>
@@ -2411,16 +2622,45 @@ export default function WeeklySchedule({
                                   )}
                                 </div>
                                 
-                                {/* Large screens and above - Show drag & drop */}
-                                <div className="hidden lg:block">
-                                  <DroppableSlot
-                                    droppableId={`${day.date}-primary`}
-                                    assignedUser={day.primary as User}
-                                    slotType="primary"
-                                    className="min-h-[50px] lg:min-h-[60px] border-2 border-dashed border-blue-200 dark:border-blue-800 rounded-lg"
-                                    isCreating={creatingShift === `${day.date}-primary`}
-                                  />
-                                </div>
+                                {/* Large screens and above - Show drag & drop only for managers/admins */}
+                                {canManageSchedule && (
+                                  <div className="hidden lg:block">
+                                    <DroppableSlot
+                                      droppableId={`${day.date}-primary`}
+                                      assignedUser={day.primary as User}
+                                      slotType="primary"
+                                      className="min-h-[50px] lg:min-h-[60px] border-2 border-dashed border-blue-200 dark:border-blue-800 rounded-lg"
+                                      isCreating={creatingShift === `${day.date}-primary`}
+                                      isCompleted={isDateCompleted(day.date)}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Large screens for employees - Show read-only cards */}
+                                {!canManageSchedule && (
+                                  <div className="hidden lg:block">
+                                    {day.primary ? (
+                                      <div className={getCompletedShiftStyling(
+                                        "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 p-3 rounded-lg min-h-[50px] lg:min-h-[60px] flex items-center",
+                                        'primary',
+                                        isDateCompleted(day.date)
+                                      )}>
+                                        <div>
+                                          <div className="font-medium text-sm">
+                                            Primary On-Call
+                                          </div>
+                                          <div className="text-sm">
+                                            {(day.primary as User).firstName} {(day.primary as User).lastName}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed min-h-[50px] lg:min-h-[60px] flex items-center">
+                                        <div className="text-sm">No Primary Assigned</div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>
@@ -2433,7 +2673,11 @@ export default function WeeklySchedule({
                             {isScheduleManagement ? (
                               /* Schedule Management Mode - Show + button */
                               day.backup ? (
-                                <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg">
+                                <div className={getCompletedShiftStyling(
+                                  "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg",
+                                  'backup',
+                                  isDateCompleted(day.date)
+                                )}>
                                   <div className="flex items-center justify-between">
                                     <div>
                                       <div className="font-medium text-sm">Backup On-Call</div>
@@ -2558,7 +2802,11 @@ export default function WeeklySchedule({
                                 {/* Medium screens and below - Show dropdown menu */}
                                 <div className="block lg:hidden">
                                   {day.backup ? (
-                                    <div className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg">
+                                    <div className={getCompletedShiftStyling(
+                                      "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg",
+                                      'backup',
+                                      isDateCompleted(day.date)
+                                    )}>
                                       <div className="flex items-center justify-between">
                                         <div>
                                           <div className="font-medium text-sm">Backup On-Call</div>
@@ -2685,16 +2933,45 @@ export default function WeeklySchedule({
                                   )}
                                 </div>
                                 
-                                {/* Large screens and above - Show drag & drop */}
-                                <div className="hidden lg:block">
-                                  <DroppableSlot
-                                    droppableId={`${day.date}-backup`}
-                                    assignedUser={day.backup as User}
-                                    slotType="backup"
-                                    className="min-h-[50px] lg:min-h-[60px] border-2 border-dashed border-green-200 dark:border-green-800 rounded-lg"
-                                    isCreating={creatingShift === `${day.date}-backup`}
-                                  />
-                                </div>
+                                {/* Large screens and above - Show drag & drop only for managers/admins */}
+                                {canManageSchedule && (
+                                  <div className="hidden lg:block">
+                                    <DroppableSlot
+                                      droppableId={`${day.date}-backup`}
+                                      assignedUser={day.backup as User}
+                                      slotType="backup"
+                                      className="min-h-[50px] lg:min-h-[60px] border-2 border-dashed border-green-200 dark:border-green-800 rounded-lg"
+                                      isCreating={creatingShift === `${day.date}-backup`}
+                                      isCompleted={isDateCompleted(day.date)}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Large screens for employees - Show read-only cards */}
+                                {!canManageSchedule && (
+                                  <div className="hidden lg:block">
+                                    {day.backup ? (
+                                      <div className={getCompletedShiftStyling(
+                                        "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 p-3 rounded-lg min-h-[50px] lg:min-h-[60px] flex items-center",
+                                        'backup',
+                                        isDateCompleted(day.date)
+                                      )}>
+                                        <div>
+                                          <div className="font-medium text-sm">
+                                            Backup On-Call
+                                          </div>
+                                          <div className="text-sm">
+                                            {(day.backup as User).firstName} {(day.backup as User).lastName}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-3 rounded-lg border-2 border-dashed min-h-[50px] lg:min-h-[60px] flex items-center">
+                                        <div className="text-sm">No Backup Assigned</div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>
@@ -2717,7 +2994,18 @@ export default function WeeklySchedule({
             </CardContent>
           </Card>
         </div>
-      </DragDropContext>
+    );
+
+  // Return with or without DragDropContext based on user role
+  return (
+    <>
+      {canManageSchedule ? (
+        <DragDropContext onDragEnd={handleDragEnd}>
+          {scheduleContent}
+        </DragDropContext>
+      ) : (
+        scheduleContent
+      )}
 
       {/* Replace Shift Confirmation Dialog */}
       <AlertDialog open={isReplaceDialogOpen} onOpenChange={setIsReplaceDialogOpen}>
