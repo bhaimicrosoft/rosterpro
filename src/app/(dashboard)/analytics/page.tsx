@@ -11,7 +11,7 @@ import {
   Line, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
 import { 
-  TrendingUp, Users, Calendar, Clock, ArrowUpRight, ArrowDownRight,
+  TrendingUp, Users, Calendar as CalendarIcon, Clock, ArrowUpRight, ArrowDownRight,
   Activity, Shield, Award, AlertTriangle, RefreshCw, Download,
   BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Settings
 } from 'lucide-react';
@@ -68,6 +68,31 @@ export default function AnalyticsPage() {
   const [dateRange, setDateRange] = useState('30'); // days
   const [selectedMetrics, setSelectedMetrics] = useState('overview');
   const [isLoading, setIsLoading] = useState(true);
+
+  // Filter data based on date range
+  const getFilteredData = useCallback((): AnalyticsData => {
+    const days = parseInt(dateRange);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const endDate = new Date(); // Today
+
+    // Filter function for date-based data
+    const isWithinRange = (dateStr: string): boolean => {
+      const date = new Date(dateStr);
+      return date >= startDate && date <= endDate;
+    };
+
+    return {
+      shifts: analyticsData.shifts.filter(shift => isWithinRange(shift.date)),
+      swapRequests: analyticsData.swapRequests.filter(sr => isWithinRange(sr.$createdAt)),
+      users: analyticsData.users, // Users don't need date filtering
+      leaveRequests: analyticsData.leaveRequests.filter(lr => 
+        isWithinRange(lr.$createdAt) || 
+        isWithinRange(lr.startDate) || 
+        isWithinRange(lr.endDate)
+      )
+    };
+  }, [analyticsData, dateRange]);
 
   // Fetch all analytics data
   const fetchAnalyticsData = useCallback(async () => {
@@ -279,7 +304,8 @@ export default function AnalyticsPage() {
 
   // Calculate key metrics
   const calculateMetrics = useCallback((): MetricCard[] => {
-    const { shifts, swapRequests, users, leaveRequests } = analyticsData;
+    const filteredData = getFilteredData(); // Use filtered data instead of raw analyticsData
+    const { shifts, swapRequests, users, leaveRequests } = filteredData;
     
     const totalEmployees = users.filter(u => u.role === 'EMPLOYEE').length;
     const totalShifts = shifts.length;
@@ -287,61 +313,13 @@ export default function AnalyticsPage() {
     const approvedSwaps = swapRequests.filter(sr => sr.status === 'APPROVED').length;
     const totalLeaveRequests = leaveRequests.length;
 
-    // Calculate coverage percentage based on shift role assignments
-    let coveragePercentage = 100; // Default to 100% coverage
+    // Calculate schedule adherence percentage - if all scheduled shifts are assigned
+    let scheduleAdherence = 100; // Default to 100% if no issues
     
     if (totalShifts > 0) {
-      // Group shifts by date to check daily coverage
-      const shiftsByDate = shifts.reduce((acc, shift) => {
-        // Normalize the date to YYYY-MM-DD format
-        const normalizedDate = shift.date.split('T')[0]; // Remove time component if present
-        if (!acc[normalizedDate]) {
-          acc[normalizedDate] = { primary: false, backup: false };
-        }
-        if (shift.onCallRole === 'PRIMARY') {
-          acc[normalizedDate].primary = true;
-        }
-        if (shift.onCallRole === 'BACKUP') {
-          acc[normalizedDate].backup = true;
-        }
-        return acc;
-      }, {} as Record<string, { primary: boolean; backup: boolean }>);
-
-      // Calculate the percentage of days with complete coverage (both primary and backup)
-      const totalDays = Object.keys(shiftsByDate).length;
-      const fullyCoveredDays = Object.values(shiftsByDate).filter(
-        day => day.primary && day.backup
-      ).length;
-      
-      // Debug: Log incomplete coverage days
-      const incompleteDays = Object.entries(shiftsByDate).filter(
-        ([, day]) => !day.primary || !day.backup
-      );
-      
-      // Additional debug: Log all shifts data to understand the structure
-      console.log('🔍 All Shifts Data:', shifts.map(s => ({
-        date: s.date,
-        normalizedDate: s.date.split('T')[0],
-        role: s.onCallRole,
-        userId: s.userId
-      })));
-      
-      console.log('📋 Shifts By Date Summary:', shiftsByDate);
-      
-      if (incompleteDays.length > 0) {
-        console.log('📊 Coverage Analysis - Incomplete Days:');
-        incompleteDays.forEach(([date, coverage]) => {
-          const missing = [];
-          if (!coverage.primary) missing.push('PRIMARY');
-          if (!coverage.backup) missing.push('BACKUP');
-          console.log(`  📅 ${date}: Missing ${missing.join(' & ')}`);
-        });
-        console.log(`📈 Coverage: ${fullyCoveredDays}/${totalDays} days = ${Math.round((fullyCoveredDays / totalDays) * 100)}%`);
-      } else {
-        console.log('✅ Perfect Coverage: All days have both PRIMARY and BACKUP assigned!');
-      }
-      
-      coveragePercentage = totalDays > 0 ? Math.round((fullyCoveredDays / totalDays) * 100) : 0;
+      // Count assigned vs unassigned shifts
+      const assignedShifts = shifts.filter(shift => shift.userId && shift.userId.trim() !== '');
+      scheduleAdherence = Math.round((assignedShifts.length / totalShifts) * 100);
     }
     
     // Calculate swap approval rate
@@ -357,8 +335,8 @@ export default function AnalyticsPage() {
         color: COLORS.primary
       },
       {
-        title: "Coverage Rate",
-        value: `${coveragePercentage}%`,
+        title: "Schedule Adherence",
+        value: `${scheduleAdherence}%`,
         change: 2.1,
         changeType: 'increase',
         icon: Shield,
@@ -385,7 +363,7 @@ export default function AnalyticsPage() {
         value: totalShifts,
         change: 15.2,
         changeType: 'increase',
-        icon: Calendar,
+        icon: CalendarIcon,
         color: COLORS.info
       },
       {
@@ -397,11 +375,11 @@ export default function AnalyticsPage() {
         color: COLORS.purple
       }
     ];
-  }, [analyticsData]);
+  }, [getFilteredData]);
 
   // Chart data processors
   const getShiftDistributionData = useCallback(() => {
-    const { shifts } = analyticsData;
+    const { shifts } = getFilteredData(); // Use filtered data
     const distribution = shifts.reduce((acc, shift) => {
       const role = shift.onCallRole || 'Unassigned';
       acc[role] = (acc[role] || 0) + 1;
@@ -413,10 +391,10 @@ export default function AnalyticsPage() {
       value: count,
       percentage: ((count / shifts.length) * 100).toFixed(1)
     }));
-  }, [analyticsData]);
+  }, [getFilteredData]);
 
   const getSwapTrendsData = useCallback(() => {
-    const { swapRequests } = analyticsData;
+    const { swapRequests } = getFilteredData(); // Use filtered data
     const last30Days = Array.from({ length: 30 }, (_, i) => {
       const date = new Date();
       date.setDate(date.getDate() - (29 - i));
@@ -436,10 +414,10 @@ export default function AnalyticsPage() {
         pending: daySwaps.filter(sr => sr.status === 'PENDING').length
       };
     });
-  }, [analyticsData]);
+  }, [getFilteredData]);
 
   const getEmployeeWorkloadData = useCallback(() => {
-    const { shifts, users } = analyticsData;
+    const { shifts, users } = getFilteredData(); // Use filtered data
     const employees = users.filter(u => u.role === 'EMPLOYEE');
     
     return employees.map(employee => {
@@ -454,10 +432,10 @@ export default function AnalyticsPage() {
         total: employeeShifts.length
       };
     }).sort((a, b) => b.total - a.total);
-  }, [analyticsData]);
+  }, [getFilteredData]);
 
   const getLeavePatternData = useCallback(() => {
-    const { leaveRequests } = analyticsData;
+    const { leaveRequests } = getFilteredData(); // Use filtered data
     const patterns = leaveRequests.reduce((acc, leave) => {
       const type = leave.type || 'OTHER';
       acc[type] = (acc[type] || 0) + 1;
@@ -476,10 +454,11 @@ export default function AnalyticsPage() {
       value: count,
       percentage: ((count / leaveRequests.length) * 100).toFixed(1)
     }));
-  }, [analyticsData]);
+  }, [getFilteredData]);
 
   const exportData = useCallback((type: string) => {
     const timestamp = new Date().toISOString().split('T')[0];
+    const filteredData = getFilteredData(); // Use filtered data
     let csvContent = '';
     let filename = '';
 
@@ -496,7 +475,7 @@ export default function AnalyticsPage() {
       case 'shifts':
         csvContent = [
           'Date,Employee,Role,Type,Status',
-          ...analyticsData.shifts.map(s => 
+          ...filteredData.shifts.map(s => 
             `"${s.date}","${s.userId}","${s.onCallRole}","${s.type}","${s.status}"`
           )
         ].join('\n');
@@ -506,7 +485,7 @@ export default function AnalyticsPage() {
       case 'swaps':
         csvContent = [
           'Date,Requester,Target,Status,Reason',
-          ...analyticsData.swapRequests.map(sr => 
+          ...filteredData.swapRequests.map(sr => 
             `"${sr.$createdAt}","${sr.requesterUserId}","${sr.targetUserId}","${sr.status}","${sr.reason}"`
           )
         ].join('\n');
@@ -523,7 +502,7 @@ export default function AnalyticsPage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [analyticsData, calculateMetrics]);
+  }, [getFilteredData, calculateMetrics]);
 
   if (!user || user.role === 'EMPLOYEE') {
     return (
@@ -561,7 +540,7 @@ export default function AnalyticsPage() {
           
           <div className="flex gap-2 flex-wrap items-center justify-start lg:justify-end">
             <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-28 sm:w-32 h-9">
+              <SelectTrigger className="w-32 sm:w-36 h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -833,7 +812,7 @@ export default function AnalyticsPage() {
                       <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                         <div>
                           <p className="font-medium">Schedule Adherence</p>
-                          <p className="text-sm text-muted-foreground">Shifts completed as planned</p>
+                          <p className="text-sm text-muted-foreground">Shifts assigned with employees</p>
                         </div>
                         <div className="text-right">
                           <p className="text-2xl font-bold text-blue-600">94%</p>
@@ -940,7 +919,7 @@ export default function AnalyticsPage() {
               <p className={`text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 ${isLoading ? 'animate-pulse bg-slate-200 dark:bg-slate-700 rounded h-6' : ''}`}>
                 {isLoading ? '' : (metrics[1]?.value || '0%')}
               </p>
-              <p className="text-xs sm:text-sm text-muted-foreground mt-1">Coverage Rate</p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">Schedule Adherence</p>
             </div>
             <div className="text-center p-4 bg-white/60 dark:bg-slate-800/60 rounded-xl relative">
               <div className="absolute top-2 right-2">

@@ -152,26 +152,26 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
     }
   };
 
-    // Mark notification as read
+  // Mark notification as read and delete it
   const markAsRead = async (notificationId: string) => {
     try {
-      await notificationService.markAsRead(notificationId);
-      setNotifications(prev => 
-        prev.map(n => n.$id === notificationId ? { ...n, read: true } : n)
-      );
+      await notificationService.markAsRead(notificationId, true); // Auto-delete when clicked
+      // Remove from local state since it's deleted from collection
+      setNotifications(prev => prev.filter(n => n.$id !== notificationId));
     } catch {
-      // Failed to mark notification as read
+      // Failed to mark notification as read/delete
     }
   };
 
-  // Mark all notifications as read
+  // Mark all notifications as read and delete them
   const markAllAsRead = async () => {
     if (user?.$id) {
       try {
-        await notificationService.markAllAsRead(user.$id);
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        await notificationService.markAllAsRead(user.$id, true); // Auto-delete all unread
+        // Remove all unread notifications from local state
+        setNotifications(prev => prev.filter(n => n.read));
       } catch {
-        // Failed to mark all notifications as read
+        // Failed to mark all notifications as read/delete
       }
     }
   };
@@ -411,15 +411,26 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                     Notifications
                   </h3>
                   {notifications.length > 0 && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={markAllAsRead}
-                      className="h-6 px-2 text-xs hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors"
-                    >
-                      <CheckCheck className="h-3 w-3 mr-1" />
-                      Mark all read
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={markAllAsRead}
+                              className="h-6 px-2 text-xs hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors"
+                            >
+                              <CheckCheck className="h-3 w-3 mr-1" />
+                              Mark all read
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Mark all notifications as read</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                   )}
                 </div>
                 <div className="max-h-80 overflow-y-auto">
@@ -479,8 +490,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
                 </div>
                 {notifications.length > 0 && (
                   <div className="p-3 border-t bg-gray-50 dark:bg-gray-800/30">
-                    <p className="text-xs text-center text-muted-foreground">
-                      Click on notifications to view details
+                    <p className="text-xs text-muted-foreground text-center">
+                      Click on notifications to dismiss them
                     </p>
                   </div>
                 )}

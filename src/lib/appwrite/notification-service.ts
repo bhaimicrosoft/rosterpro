@@ -52,34 +52,102 @@ export const notificationService = {
     }
   },
 
-  // Mark a notification as read
-  async markAsRead(notificationId: string) {
+  // Mark a notification as read and optionally delete it
+  async markAsRead(notificationId: string, autoDelete: boolean = false) {
     try {
-      const notification = await databases.updateDocument(
-        DATABASE_ID,
-        COLLECTIONS.NOTIFICATIONS,
-        notificationId,
-        { read: true }
-      );
-      return castDocument<Notification>(notification);
+      if (autoDelete) {
+        // Delete the notification instead of marking as read
+        await databases.deleteDocument(
+          DATABASE_ID,
+          COLLECTIONS.NOTIFICATIONS,
+          notificationId
+        );
+        return null; // Return null to indicate deletion
+      } else {
+        // Just mark as read
+        const notification = await databases.updateDocument(
+          DATABASE_ID,
+          COLLECTIONS.NOTIFICATIONS,
+          notificationId,
+          { read: true }
+        );
+        return castDocument<Notification>(notification);
+      }
     } catch (error) {
       throw error;
     }
   },
 
-  // Mark all notifications as read for a user
-  async markAllAsRead(userId: string) {
+  // Mark all notifications as read for a user and optionally delete them
+  async markAllAsRead(userId: string, autoDelete: boolean = false) {
     try {
       const notifications = await this.getNotificationsByUser(userId);
       const unreadNotifications = notifications.filter(n => !n.read);
       
+      if (autoDelete) {
+        // Delete all unread notifications
+        await Promise.all(
+          unreadNotifications.map(notification => 
+            databases.deleteDocument(
+              DATABASE_ID,
+              COLLECTIONS.NOTIFICATIONS,
+              notification.$id
+            )
+          )
+        );
+      } else {
+        // Just mark as read
+        await Promise.all(
+          unreadNotifications.map(notification => 
+            this.markAsRead(notification.$id, false)
+          )
+        );
+      }
+      
+      return unreadNotifications.length;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Clear (delete) read notifications for a user
+  async clearReadNotifications(userId: string) {
+    try {
+      const notifications = await this.getNotificationsByUser(userId);
+      const readNotifications = notifications.filter(n => n.read);
+      
       await Promise.all(
-        unreadNotifications.map(notification => 
-          this.markAsRead(notification.$id)
+        readNotifications.map(notification => 
+          databases.deleteDocument(
+            DATABASE_ID,
+            COLLECTIONS.NOTIFICATIONS,
+            notification.$id
+          )
         )
       );
       
-      return true;
+      return readNotifications.length; // Return count of cleared notifications
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Clear all notifications for a user (both read and unread)
+  async clearAllNotifications(userId: string) {
+    try {
+      const notifications = await this.getNotificationsByUser(userId);
+      
+      await Promise.all(
+        notifications.map(notification => 
+          databases.deleteDocument(
+            DATABASE_ID,
+            COLLECTIONS.NOTIFICATIONS,
+            notification.$id
+          )
+        )
+      );
+      
+      return notifications.length; // Return count of cleared notifications
     } catch (error) {
       throw error;
     }
